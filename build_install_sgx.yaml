@@ -1,0 +1,40 @@
+---
+- hosts: all
+  remote_user: ncl
+  become: yes
+  become_method: sudo
+
+  vars:
+    sgx_root_dir: /home/ncl/sgx
+
+
+  tasks:
+    - name: Install the required tools to build the Intel(R) SGX SDK
+      apt:  
+        name: ['build-essential', 'ocaml', 'automake', 'autoconf', 'libtool', 'wget', 'python', 'libssl-dev', 'unzip'] 
+        state: present 
+        update_cache: yes
+     
+    - name: Install additional required tools to build the Intel(R) SGX PSW 
+      apt:
+        name: ['libssl-dev', 'libcurl4-openssl-dev', 'protobuf-compiler', 'libprotobuf-dev', 'debhelper', 'cmake']
+        state: present
+        update_cache: yes
+
+    - name: Downloading Intel(R) Software Guard Extensions for Linux OS from GIT
+      git:
+        repo: "{{ repository }}"
+        dest: "{{ sgx_root_dir }}" 
+
+    - name: Run a script to download prebuilt binaries to prebuilt folder 
+      script: "{{ sgx_root_dir }}/download_prebuilt.sh"
+
+    # Build the Intel SGX SDK
+    - make:
+        chdir: "{{ sgx_root_dir }}/sdk"
+
+    # Build the Intel SGX SDK
+    - make:
+        chdir: "{{ sgx_root_dir }}"
+        target: sdk_install_pkg
+

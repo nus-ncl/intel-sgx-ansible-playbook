@@ -1,0 +1,27 @@
+---
+- hosts: all
+  remote_user: ncl
+  become: yes
+  become_method: sudo
+
+  vars:
+    sgx_root_dir: /home/ncl/sgx  
+
+  tasks:
+    - name: Install the Intel(R) SGX SDK 
+      shell: "yes 'yes' | ./sgx_linux_x64_sdk_2.5.101.50123.bin"
+      args: 
+        chdir: "{{ sgx_root_dir }}/linux/installer/bin"
+
+    - name: Compile Intel(R) SGX SDK Package Code Samples 
+      shell: ./sgx_compile.sh 
+      args:
+        chdir:  "{{ sgx_root_dir }}/SampleCode/LocalAttestation" 
+
+    - name: Test the Intel(R) SGX SDK Package with the Code Samples
+      shell: "yes | ./sgx_test.sh"
+      register: out
+      args:
+        chdir:  "{{ sgx_root_dir }}/SampleCode/LocalAttestation"
+
+    - debug: var=out.stdout_lines 
