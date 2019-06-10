@@ -1,9 +1,14 @@
 ---
+
 # Test SGX applications in SIM and HW mode
+
+#############################################################################################################
 # [USAGE]: ansible-playbook -i hosts_file test_sgx_app.yaml [--tags sim_test/hw_test]
 # where tags mean: "sim_test"      = test only the application in sim mode
 #                  "hw_test"       = test only the application in hw mode
 # and no tags = test an application in sim mode and the other one in hw mode (the entire content of playbook)
+#############################################################################################################
+
 # Application tested in SIM mode: https://github.com/hstoenescu/SGX-beginner-sample
 # Application test in HW mode: https://github.com/intel/linux-sgx/tree/master/SampleCode/RemoteAttestation
 
