@@ -1,27 +1,94 @@
 ---
-- hosts: all
-  remote_user: ncl
-  become: yes
-  become_method: sudo
+# Test SGX applications in SIM and HW mode
+# [USAGE]: ansible-playbook -i hosts_file test_sgx_app.yaml [--tags sim_test/hw_test]
+# where tags mean: "sim_test"      = test only the application in sim mode
+#                  "hw_test"       = test only the application in hw mode
+# and no tags = test an application in sim mode and the other one in hw mode (the entire content of playbook)
+# Application tested in SIM mode: https://github.com/hstoenescu/SGX-beginner-sample
+# Application test in HW mode: https://github.com/intel/linux-sgx/tree/master/SampleCode/RemoteAttestation
 
+- hosts: all
+  sudo: no
   vars:
-    sgx_root_dir: /home/ncl/sgx  
+    ## SDK ##
+    sdk_location: /linux/installer/bin
+    sample_repo_sim: https://github.com/hstoenescu/SGX-beginner-sample
 
   tasks:
-    - name: Install the Intel(R) SGX SDK 
-      shell: "yes 'yes' | ./sgx_linux_x64_sdk_2.5.101.50123.bin"
+    ## General config ##
+    - name: "[GENERAL] Get the current user from the current machine"
+      shell: "whoami"
+      register: current_user
+      tags: [ 'sim_test', 'hw_test' ]
+
+    - name: "[GENERAL] Get the effective group in which the current is in"
+      shell: "id -gn"
+      register: current_group
+      tags: 'hw_test'
+
+    - name: "[GENERAL] Complete the path on variables with the current user"
+      set_fact:
+        ansible_repo="/home/{{ current_user.stdout }}/ansible_testing_repo"
+        sample_libcrypto="/home/{{ current_user.stdout }}/ansible_testing_repo/sdk/sample_libcrypto"
+        sample_code_ra="/home/{{ current_user.stdout }}/ansible_testing_repo/SampleCode/RemoteAttestation"
+      tags: [ 'sim_test', 'hw_test' ]
+
+    ## SIM MODE ##
+    ## Get a sample code and run it - beginners example ##
+    - name: "[SIM] Clone the SGX beginner sample repository"
+      git: repo={{ sample_repo_sim }}
+           dest={{ ansible_repo }}/SampleCode/beginner-sample
+      tags: 'sim_test'
+
+    - name: "[SIM] Compile the code for SGX beginner sample project"
+      shell: ". {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment && make SGX_MODE=SIM"
+      args:
+        chdir: "{{ ansible_repo }}/SampleCode/beginner-sample"
+      tags: 'sim_test'
+
+    - name: "[SIM] Run the sample beginner code and print the output"
+      shell: ". {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment && ./app"
+      args:
+        chdir: "{{ ansible_repo }}/SampleCode/beginner-sample"
+      register: app_sample_sim
+      tags: 'sim_test'
+
+    - name: "[SIM] Output - sample code in sim mode:"
+      debug: msg="{{ app_sample_sim.stdout.split('\n') }}"
+      tags: 'sim_test'
+
+    ## Note: leave the repo for the first sample code in the path .../Sample/beginner-sample/ ##
+
+    ## HW MODE - run the RemoteAttestation example ##
+    ## Note that this example needs the sample_libcrypto copied to folder locally ##
+    - name: "[HW] Run the RemoteAttestation example.
+             Need to copy the sample_libcrypto from {{ sample_libcrypto }} to {{ sample_code_ra }}"
+      copy:
+        # keep the permissions 775
+        src: "{{ sample_libcrypto }}" 
+        dest: "{{ sample_code_ra }}"
+        remote_src: yes
+        owner: "{{ current_user.stdout }}"
+        group: "{{ current_group.stdout }}"
+        mode: u=rwx,g=rwx,o=rx
+      tags: 'hw_test'
+
+    ## Source is needed here for compiling with sgx_edger8r ##
+    - name: "[HW] Compile the RemoteAttestation code with the flag SGX_MODE=HW"
+      shell: ". {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment && make SGX_MODE=HW"
+      args:
+        chdir: "{{ sample_code_ra }}" 
+      tags: 'hw_test'
+
+    - name: "[HW] Run the RemoteAttestation code and print the output"
+      shell: ". {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment && LD_LIBRARY_PATH=sample_libcrypto && yes 'done' | ./app"
       args: 
-        chdir: "{{ sgx_root_dir }}/linux/installer/bin"
+        chdir: "{{ sample_code_ra }}"
+      register: app_sample_hw
+      tags: 'hw_test'
 
-    - name: Compile Intel(R) SGX SDK Package Code Samples 
-      shell: ./sgx_compile.sh 
-      args:
-        chdir:  "{{ sgx_root_dir }}/SampleCode/LocalAttestation" 
-
-    - name: Test the Intel(R) SGX SDK Package with the Code Samples
-      shell: "yes | ./sgx_test.sh"
-      register: out
-      args:
-        chdir:  "{{ sgx_root_dir }}/SampleCode/LocalAttestation"
-
-    - debug: var=out.stdout_lines 
+    - name: "[HW] Output - RemoteAttestation in hw mode:"
+      debug: msg="{{ app_sample_hw.stdout.split('\n') }}"
+      tags: 'hw_test'
+    
+    ## Note: leave the sample_libcrypto files in RemoteAttestation folder for further runs ##
