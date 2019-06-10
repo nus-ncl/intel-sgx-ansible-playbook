@@ -1,2 +1,21 @@
-[nginx]
-localhost
+# Host file
+
+# Format #
+# [group_of_hosts]
+# ip_host/hostname
+# or
+# ip_host/hostname ansible_connection=local/ssh ansible_user=USER
+
+## see more information here: https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html
+
+[ncl]
+127.0.0.1 	   ansible_connection=local ansible_user=user
+# for localhost can also add
+# localhost
+# 127.0.0.1 (or any other ip from 127.0.0.0/8)
+
+[ncl2]
+172.27.100.200 ansible_connection=ssh ansible_user=user2
+
+[ncl3]
+172.17.200.200 ansible_connection=ssh ansible_user=user3
