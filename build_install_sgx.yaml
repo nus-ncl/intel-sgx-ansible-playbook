@@ -1,40 +1,510 @@
 ---
+# Install SDK, verify hardware and if it supports SGX, install Driver and platform software (PSW)
+############################################################################
+# See also the README.md from this repository for the following information:
+# - what is Ansible and how it works
+# - how to run the modules and configure the inventory
+# - what are the steps done for each component
+############################################################################
+
+# -- ubuntu 18.04 install --
+
 - hosts: all
-  remote_user: ncl
-  become: yes
-  become_method: sudo
-
+  sudo: no
   vars:
-    sgx_root_dir: /home/ncl/sgx
+    ### SDK + PSW ###
+    sgx_repo: https://github.com/intel/linux-sgx
+    sdk_location: /linux/installer/bin
+    psw_location: /linux/installer/deb
+    sample_repo: https://github.com/hstoenescu/SGX-beginner-sample
 
+    ### HW verification ###
+    hw_repo: https://github.com/ayeks/SGX-hardware
+    hw_exec: test-sgx
+
+    ### DRIVER ###
+    driver_repo: https://github.com/intel/linux-sgx-driver
+
+    ### kernel ###
+    # according to this post: https://askubuntu.com/questions/760671/could-not-load-vboxdrv-after-upgrade-to-ubuntu-16-04-and-i-want-to-keep-secur/768310#768310
+    # starting from 4.4.0-20, the secure boot was enforced and as such all the modules have to be signed by a known CA
+    req_kernel_version: 4.4.0-20
+
+    # note that all packages are updated or installed if not found
 
   tasks:
-    - name: Install the required tools to build the Intel(R) SGX SDK
-      apt:  
-        name: ['build-essential', 'ocaml', 'automake', 'autoconf', 'libtool', 'wget', 'python', 'libssl-dev', 'unzip'] 
-        state: present 
-        update_cache: yes
-     
-    - name: Install additional required tools to build the Intel(R) SGX PSW 
+    - name: "[GENERAL] Get the current user from the current machine"
+      shell: "whoami"
+      register: current_user
+      tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
+
+    - name: "[GENERAL] Complete the path on variables with the current user"
+      set_fact:
+        ansible_repo="/home/{{ current_user.stdout }}/ansible_testing_repo"
+        hw_location="/home/{{ current_user.stdout }}/sgx-hardware"
+        driver_location="/home/{{ current_user.stdout }}/sgx-driver"
+        openssl_cnf_file="/home/{{ current_user.stdout }}/SGX-setup-install/sgx_openssl.cnf"
+        path_to_certs="/home/{{ current_user.stdout }}/SGX-setup-install"
+      tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
+
+    ## General prerequisites ##
+    - name: "[GENERAL SETUP] Install the required tools for compiling code - gcc"
       apt:
-        name: ['libssl-dev', 'libcurl4-openssl-dev', 'protobuf-compiler', 'libprotobuf-dev', 'debhelper', 'cmake']
-        state: present
+        name: gcc
+        state: latest
         update_cache: yes
 
-    - name: Downloading Intel(R) Software Guard Extensions for Linux OS from GIT
-      git:
-        repo: "{{ repository }}"
-        dest: "{{ sgx_root_dir }}" 
+    ##### SDK + PSW #####
+    - name: "[SDK] Install required tools to build the Intel SGX SDK"
+      action: >
+        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
+      with_items: ['build-essential', 'ocaml', 'ocamlbuild', 'automake', 'autoconf', 'libtool', 'wget', 'python', 'libssl-dev']
+      become: yes
+      tags: sgx_sdk
 
-    - name: Run a script to download prebuilt binaries to prebuilt folder 
-      script: "{{ sgx_root_dir }}/download_prebuilt.sh"
+    - name: "[PSW] Install additional required tools to build the Intel SGX PSW"
+      action: >
+        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
+      with_items: ['libssl-dev', 'libcurl4-openssl-dev', 'protobuf-compiler', 'libprotobuf-dev', 'debhelper', 'cmake']
+      become: yes
+      tags: sgx_psw
 
-    # Build the Intel SGX SDK
-    - make:
-        chdir: "{{ sgx_root_dir }}/sdk"
+    - name: "[SDK + PSW] Clone the linux-sgx repository to the current machine"
+      git: repo={{ sgx_repo }}
+           dest={{ ansible_repo }}
+      tags: ['sgx_sdk', 'sgx_psw']
 
-    # Build the Intel SGX SDK
-    - make:
-        chdir: "{{ sgx_root_dir }}"
+    - name: "[SDK + PSW] Execute download_prebuilt to download prebuilt binaries to folder"
+      shell: ./download_prebuilt.sh
+      args:
+        chdir: "{{ ansible_repo }}"
+      tags: ['sgx_sdk', 'sgx_psw']
+
+    ## Build both sdk and psw with default configuration ## 
+    ## Note: the folder size can be up to 500MB          ##
+    - name: "[SDK + PSW] Build the Intel SGX SDK and PSW. This may take a while ..."
+      make:
+        chdir: "{{ ansible_repo }}"
+      tags: ['sgx_sdk', 'sgx_psw']
+
+    ##### SDK #####
+    ## Note: after this operation can be up to 588MB ##
+    - name: "[SDK + PSW] Build the Intel SGX SDK installer"
+      make:
+        chdir: "{{ ansible_repo }}"
         target: sdk_install_pkg
+      tags: sgx_sdk
 
+    ## Used for reference the script build.sh from .../linux/installer/deb/libsgx-urts ##
+    - name: "[SDK + PSW] Get the SGX version"
+      shell: awk '/STRFILEVER/ {print $3}' common/inc/internal/se_version.h | sed 's/^\"\(.*\)\"$/\1/'
+      args:
+        chdir: "{{ ansible_repo }}"
+      register: sgx_version
+      tags: ['sgx_sdk', 'sgx_psw']
+
+    - name: "[SDK + PSW] Get the short codename for current OS"
+      shell: lsb_release -cs
+      register: os_codename
+      tags: ['sgx_sdk', 'sgx_psw']
+
+    - name: "[SDK + PSW] Get the DEB version"
+      shell: 'echo $(dpkg-parsechangelog | grep "Version" | cut -d: -f2) |  cut -d- -f2'
+      args:
+        chdir: "{{ ansible_repo }}{{ psw_location }}/libsgx-urts/libsgx-urts-1.0"
+      register: deb_version
+      tags: ['sgx_sdk', 'sgx_psw']
+
+    ## Install the Intel SGX SDK ##
+    - name: Install the required tools to use Intel SGX SDK
+      action: >
+        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
+      with_items: ['build-essential', 'python']
+      become: yes
+
+    - name: Install the Intel SGX SDK
+      shell: "yes 'yes' | ./sgx_linux_x64_sdk_{{ sgx_version.stdout }}.bin"
+      args:
+        chdir: "{{ ansible_repo }}{{ sdk_location }}"
+      tags: sgx_sdk
+      become: yes
+
+    ## Note that we still need to source the environment when testing an application on this file ##
+    - name: Add the source command to sgxsdk environment to .bashrc for the current user
+      lineinfile:
+        path: /home/{{ current_user.stdout }}/.bashrc
+        line: source {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment
+      tags: sgx_sdk
+
+    - name: Source the new .bashrc file for current user
+      shell: . /home/{{ current_user.stdout }}/.bashrc
+      tags: sgx_sdk
+
+    ## Get a sample code and run it - beginners example ##
+    - name: Clone the SGX beginner sample repository
+      git: repo={{ sample_repo }}
+           dest={{ ansible_repo }}/SampleCode/beginner-sample
+      tags: sgx_sdk
+
+    - name: Compile the code for SGX beginner sample project
+      shell: ". {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment && make SGX_MODE=SIM"
+      args:
+        chdir: "{{ ansible_repo }}/SampleCode/beginner-sample"
+      tags: sgx_sdk
+
+    - name: Run the sample beginner code and print the output
+      shell: ". {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment && ./app"
+      args:
+        chdir: "{{ ansible_repo }}/SampleCode/beginner-sample"
+      register: app_sample_sim
+      tags: sgx_sdk
+
+    ## Print sample code output ##
+    - debug: msg="{{ app_sample_sim.stdout.split('\n') }}"
+      tags: sgx_sdk
+
+    ############################################################################################################################################
+    ## Hardware verification - before installing the DRIVER + PSW, there is need to verify if the hardware supports SGX in real mode ##
+    ## Simulation works without using the true hardware, instead the instructions are simulated in software ##
+
+    - name: "[HW verification] Download the sgx hardware verification repository. 
+             See the README from this link: {{ hw_repo }} for more information"
+      git: repo={{ hw_repo }}
+           dest={{ hw_location }}
+      tags: hw_verif
+    
+    - name: "[HW verification] Compile the sgx hardware to get the tester executable"
+      shell: "gcc -o test-sgx test-sgx.c"
+      args:
+        chdir: "{{ hw_location }}"
+      tags: hw_verif
+
+    - name: "[HW verification] Run the tester for hardware"
+      shell: "./test-sgx"
+      args:
+        chdir: "{{ hw_location }}"
+      register: out_test_sgx
+      tags: hw_verif
+
+    ## There is no need anymore for sgx-hardware repo, so delete it before verification ##
+    - name: "[HW verification] Delete the sgx hardware repo folder: {{ hw_location }}"
+      file:
+        state: absent
+        path: "{{ hw_location }}"
+      tags: hw_verif
+
+    ## Verify the entire string, not by splitting and getting the index value ##
+    - name: "[HW verification] Verify the CPU support - 
+             fail the play if 'sgx available: 1' is not found in the output"
+      fail:
+        msg: "[HW verification] SGX functions are deactivated or SGX is not supported in the current CPU.
+              See here the list of processors: https://ark.intel.com/content/www/us/en/ark.html#@Processors and verify the current one"
+      when: "'sgx available: 1' not in out_test_sgx.stdout"
+      tags: hw_verif
+
+    ## Note: for the moment, there is verified the sgx version 1 (did not find devices with v2 enabled) ##
+    - name: "[HW verification] Verify the SGX support in BIOS - only version 1 for the moment"
+      fail:
+        msg: "[HW verification] SGX is available for CPU, but not enabled in BIOS. Consult the documentation for how to enable it in BIOS.
+              Also, on some devices it may not be supported at all by the BIOS"
+      when: "'sgx 1 supported: 1' not in out_test_sgx.stdout"
+      tags: hw_verif
+
+    ############################################################################################################################################
+    ##### DRIVER #####
+    - name: "[DRIVER] Download the linux sgx driver repository: {{ driver_repo }}"
+      git: repo={{ driver_repo }}
+           dest={{ driver_location }}
+      tags: sgx_driver
+
+    - name: "[DRIVER] Compile the driver code to obtain the kernel module 'isgx.ko'"
+      make:
+        chdir: "{{ driver_location }}"
+      tags: sgx_driver
+    
+    - name: "[DRIVER] Check that the kernel module 'isgx.ko' exists in the same directory after compiling"
+      stat:
+        path: "{{ driver_location }}/isgx.ko"
+      register: kern_module_result
+      tags: sgx_driver
+
+    - name: "[DRIVER] Fail the play if the kernel module 'isgx.ko' is not found"
+      fail:
+        msg: "[DRIVER] Could not find the kernel module. 
+              Verify the compiling of driver files"
+      when: not kern_module_result.stat.exists
+      tags: sgx_driver
+
+    - name: "[DRIVER] Get the kernel release value"
+      shell: uname -r
+      register: kern_value
+      tags: ['sgx_driver','sgx_driver_enroll', 'sgx_driver_cert']
+
+    - name: "[DRIVER] Check if matching kernel headers - {{ kern_value.stdout }} - are installed"
+      shell:  "dpkg-query -s linux-headers-{{ kern_value.stdout }}"
+      register: kern_headers_out
+      tags: sgx_driver
+
+    - name: "[DRIVER] Install the matching headers for kernel version {{ kern_value.stdout }}"
+      apt:
+        name: "linux-headers-{{ kern_value.stdout }}"
+        state: latest 
+        update_cache: yes
+      when: '"install ok installed" not in kern_headers_out.stdout'
+      become: yes
+      tags: sgx_driver
+
+    - name: "[DRIVER] Install the SGX driver - create the directory for the kernel module isgx (root:root with 0755 mode)"
+      file:
+        path: "/lib/modules/{{ kern_value.stdout }}/kernel/drivers/intel/sgx"
+        recurse: yes
+        owner:   root
+        group:   root
+        mode:    0755
+      become:    yes
+      tags: sgx_driver
+
+    - name: "[DRIVER] Install the SGX driver - copy kernel module 'isgx.ko' to sgx directory and add it to etc modules"
+      command: "{{ item }} chdir={{ driver_location }}"
+      with_items:
+        - cp isgx.ko "/lib/modules/{{ kern_value.stdout }}/kernel/drivers/intel/sgx" 
+        - sh -c "cat /etc/modules | grep -Fxq isgx || echo isgx >> /etc/modules"
+        - /sbin/depmod
+      become: yes
+      tags: sgx_driver
+
+    ## If kernel module is < 4.4.0-20, then skip the module signing steps and go directly to enable it using modprobe ##
+    - name: "[DRIVER] Check the kernel version against the version {{ req_kernel_version }}"
+      shell: "if [ $(printf '%s\n' {{ req_kernel_version }} {{ kern_value.stdout }} | sort -V | head -n 1) = {{ req_kernel_version }} ]; then 
+                echo 'sb_yes';
+              else
+                echo 'sb_no';
+              fi"
+      register: sb_value
+      tags: ['sgx_driver', 'sgx_driver_enroll', 'sgx_driver_cert']
+
+    # We need to generate the certificate, add it to known base and sign the kernel module with it
+    # can use from ansible crypto module: https://www.jeffgeerling.com/blog/2017/generating-self-signed-openssl-certs-ansible-24s-crypto-modules
+    # openssl_privatekey, openssl_csr and openssl_certificate
+
+    ############################################################################################################################################
+
+    # After a first run, we do not need to regenerate the certificate. Verify with mokutil the list of enrolled certificate
+    - name: "[DRIVER] Get the list of enrolled certificate in MOK"
+      shell: mokutil --export
+      args:
+        chdir: "{{ path_to_certs }}"
+      become: yes
+      tags: sgx_driver
+      when: sb_value.stdout == "sb_yes"
+    
+    # We expect to have the following files in the certificates folder - example:
+    # $ ls -a | grep 'MOK--*'
+    # MOK-0001.der
+    # MOK-0002.der
+    ########################
+
+    - name: "[DRIVER] Get the list of exported certificates - there is expected to begin with 'MOK-*'"
+      shell: "ls -a | grep 'MOK--*'"
+      args:
+        chdir: "{{ path_to_certs }}"
+      register: cert_out
+      tags: sgx_driver
+      when: sb_value.stdout == "sb_yes"
+
+    - name: "[DRIVER] Get the list of subjects from the exported certificates"
+      shell: openssl x509 -in {{ item.1 }} -inform DER -subject -noout
+      args:
+        chdir: "{{ path_to_certs }}"
+      with_indexed_items:
+        - "{{ cert_out.stdout.split('\n') }}"
+      register: out_cert_subjects
+      tags: sgx_driver
+
+    - name: "[DRIVER] Verify if in the list of enrolled certificates is one with the required subject"
+      shell: echo "found" # this is just for task to have a command defined
+      with_indexed_items:
+        - "{{ out_cert_subjects }}"
+      register: found_cert_subject
+      when: "'C = CA, ST = Singapore, L = Singapore, O = NUS, CN = Secure Boot Signing, emailAddress = example@example.com' in item.1.results[0].stdout"
+      tags: sgx_driver
+
+    - name: "[DRIVER] Delete the exported certificates from mokutil" # it doesn't mattter if there are/are not certificates in the path
+      file:
+        state: absent
+        path: "{{ path_to_certs }}/{{ item.1 }}"
+      with_indexed_items:
+        - "{{ cert_out.stdout.split('\n') }}"
+      tags: sgx_driver  
+      when: sb_value.stdout == "sb_yes"
+
+    # item.0 is the index in the array and item.1 is the actual content from that index
+    # - debug:
+    #     msg: "{{ item.1 }}"
+    #   with_indexed_items:
+    #     - "{{ cert_out.stdout.split('\n') }}"
+    #   tags: sgx_driver
+
+    ## Note: changed from DER format to PEM (should work also enrolling and kernel module verification) ##
+    - name: "[DRIVER] Generate an openssl private key and self-signed certificate using the openssl config file {{ openssl_cnf_file }}"
+      shell: "openssl req -config {{ openssl_cnf_file }} 
+              -new -x509 -newkey rsa:2048 
+              -nodes -days 365 -outform PEM
+              -keyout {{ path_to_certs }}/MOK.priv 
+              -out {{ path_to_certs }}/MOK.pem"
+      tags: sgx_driver
+      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+
+    - name: "[DRIVER] Check the signature of the self-signed certificate {{ path_to_certs }}/MOK.pem"
+      shell: "openssl verify -CAfile {{ path_to_certs }}/MOK.pem {{ path_to_certs }}/MOK.pem"
+      register: cert_verify
+      tags: sgx_driver
+      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+
+    - name: "[DRIVER] Fail the play if the certificate's {{ path_to_certs }}/MOK.pem signature is not OK"
+      fail:
+        msg: "[DRIVER] The certificate's {{ path_to_certs }}/MOK.pem signature is not OK"
+      tags: sgx_driver
+      when: 'found_cert_subject is undefined and "MOK.pem: OK" not in cert_verify.stdout and sb_value.stdout == "sb_yes"'
+
+    ############################################################################################################################################
+    ## Sign the module isgx.ko using the private key from above ##
+    - name: "[DRIVER] Sign the kernel module 'isgx.ko' using the private key 'MOK.priv'"
+      shell: "/usr/src/linux-headers-{{ kern_value.stdout }}/scripts/sign-file sha256 
+              {{ path_to_certs }}/MOK.priv 
+              {{ path_to_certs }}/MOK.pem 
+              /lib/modules/{{ kern_value.stdout }}/kernel/drivers/intel/sgx/isgx.ko"
+      become: yes
+      tags: sgx_driver
+      when: sb_value.stdout == "sb_yes"
+
+    - name: "[DRIVER] Verify if the kernel module 'isgx.ko' was signed"
+      shell: strings isgx.ko | tail -n 1
+      args:
+        chdir: "/lib/modules/{{ kern_value.stdout }}/kernel/drivers/intel/sgx"
+      register: out_kern_module
+      tags: sgx_driver
+      when: sb_value.stdout == "sb_yes"
+    
+    - name: "[DRIVER] Fail the play if the kernel module 'isgx.ko' does not contain the message: 'Module signature appended'"
+      fail:
+        msg: "[DRIVER] The kernel module 'isgx.ko' does not contain the required message: 'Module signature appended'"
+      tags: sgx_driver
+      when: '"Module signature appended" not in out_kern_module.stdout and sb_value.stdout == "sb_yes"'
+
+    - name: "[DRIVER] Convert the pem certificate 'MOK.pem' to DER format (needed by mokutil command)"
+      shell: "openssl x509 -outform DER
+              -in  {{ path_to_certs }}/MOK.pem
+              -out {{ path_to_certs }}/MOK.der"
+      tags: sgx_driver
+      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+    
+    ## Use mokutil to import the certificate to trusting base ##
+    - name: "[DRIVER] Enroll the key to shim (the trusting base of certificates) in order to verify the signed kernel module.
+            There is need to add a password for 2 times"
+      shell: 'yes "horia" | head -n 2 | mokutil --import {{ path_to_certs }}/MOK.der'
+      become: yes
+      tags: sgx_driver
+      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+
+    ## On this next step, we need to reboot the device ##
+    - name: "[DRIVER] Reboot the device after importing cert to shim"
+      shell: "reboot"
+      async: 1
+      poll: 0
+      tags: sgx_driver
+      become: yes
+      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+    
+    - name: "[DRIVER] Wait for reboot to complete. Add to the remote device the password in MOKManager"
+      wait_for_connection:
+        connect_timeout: 20
+        sleep: 5
+        delay: 5
+        timeout: 300
+      tags: sgx_driver
+      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+
+    - name: "[DRIVER] After the reboot is completed, verify the /proc/keys file - need to exist at least 1 CN = NUS there "
+      shell: "cat /proc/keys | grep NUS"
+      register: out_proc_keys
+      become: yes
+      tags: sgx_driver
+      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+
+    - name: "[DRIVER] Fail the play if at least 1 CN = NUS is not found in the /proc/keys file"
+      fail:
+        msg: "[DRIVER] Failed to find at least 1 CN = NUS in the /proc/keys file"
+      tags: sgx_driver
+      when: 'found_cert_subject is undefined and "NUS: Secure Boot Signing" not in out_proc_keys.stdout and sb_value.stdout == "sb_yes"'
+
+    ## Enable the kernel module 'isgx.ko' ##
+    - name: "[DRIVER] Enable the module 'isgx.ko' on device"
+      shell: "modprobe isgx"
+      become: yes
+      tags: sgx_driver
+
+    - name: "[DRIVER] Verify if the module 'isgx.ko' was enabled on device"
+      shell: "lsmod | grep isgx"
+      register: lsmod_out
+      become: yes
+      tags: sgx_driver
+
+    - name: "[DRIVER] Fail the play if the module 'isgx' is not found enabled on the device"
+      fail:
+        msg: "[DRIVER] Failed to find the module 'isgx' enabled on the device"
+      when: '"isgx" not in lsmod_out.stdout'
+      tags: sgx_driver
+
+    # a new reboot may be needed again after this step
+
+    # leave for the moment the sgx-driver folder. DO NOT DELETE IT!
+
+    ##### PSW (platform software) #####
+    - name: "[PSW] Build the SGX PSW installer"
+      make:
+        chdir: "{{ ansible_repo }}"
+        target: deb_pkg
+      tags: sgx_psw
+
+    # We need to install from linux installer deb 2 files
+    # - libsgx-enclave_common
+    # - libsgx-urts
+    - name: "[PSW] Verify if the 2 deb files exist in path {{ ansible_repo }}{{ psw_location }}"
+      stat:
+        path: "{{ ansible_repo }}{{ psw_location }}/{{ item }}"
+      with_items:
+        - libsgx-enclave-common_{{ sgx_version.stdout}}-{{ os_codename.stdout }}{{ deb_version.stdout }}_amd64.deb
+        - libsgx-urts_{{ sgx_version.stdout }}-{{ os_codename.stdout }}{{ deb_version.stdout }}_amd64.deb
+      register: psw_deb_files
+      tags: sgx_psw
+
+    - name: "[PSW] Fail the play if both files/one file are/is not found"
+      fail:
+        msg: "[PSW] Both files needed by play - libsgx-enclave_common and libsgx-urts - were not found. 
+              Verify if the 'make deb_pkg' command from above was successful"
+      when: not psw_deb_files.results[0].stat.exists or not psw_deb_files.results[1].stat.exists
+      tags: sgx_psw
+
+    - name: "[PSW] Install the prerequisites libraries"
+      action: >
+        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
+      with_items: ['libssl-dev', 'libcurl4-openssl-dev', 'libprotobuf-dev']
+      become: yes
+      tags: sgx_psw
+    
+    - name: "[PSW] Install the SGX PSW"
+      command: "{{ item }} chdir={{ ansible_repo }}{{ psw_location }}"
+      with_items:
+        - dpkg -i ./libsgx-enclave-common_{{ sgx_version.stdout}}-{{ os_codename.stdout }}{{ deb_version.stdout }}_amd64.deb
+        - dpkg -i ./libsgx-urts_{{ sgx_version.stdout }}-{{ os_codename.stdout }}{{ deb_version.stdout }}_amd64.deb
+      become: yes
+      tags: sgx_psw
+    
+    - name: "[PSW] Make sure the aesmd service is up and running"
+      service: 
+        name=aesmd
+        state=started
+        enabled=yes 
+      become: yes
+      tags: sgx_psw
