@@ -1,4 +1,5 @@
 ---
+
 # Install SDK, verify hardware and if it supports SGX, install Driver and platform software (PSW)
 ############################################################################
 # See also the README.md from this repository for the following information:
@@ -7,7 +8,12 @@
 # - what are the steps done for each component
 ############################################################################
 
-# -- ubuntu 18.04 install --
+##############################################################################################################
+# [USAGE]: ansible-playbook -i hosts_file build_install_sgx.yaml [--tags hw_verif/sgx_driver/sgx_psw/sgx_sdk]
+# For more info, see here: https://github.com/hstoenescu/Intel-sgx-ansible-playbook#playbook-files
+##############################################################################################################
+
+# -- ubuntu 18.04 install -- #
 
 - hosts: all
   sudo: no
