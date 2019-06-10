@@ -244,7 +244,7 @@
     - name: "[DRIVER] Get the kernel release value"
       shell: uname -r
       register: kern_value
-      tags: ['sgx_driver','sgx_driver_enroll', 'sgx_driver_cert']
+      tags: 'sgx_driver'
 
     - name: "[DRIVER] Check if matching kernel headers - {{ kern_value.stdout }} - are installed"
       shell:  "dpkg-query -s linux-headers-{{ kern_value.stdout }}"
@@ -287,7 +287,7 @@
                 echo 'sb_no';
               fi"
       register: sb_value
-      tags: ['sgx_driver', 'sgx_driver_enroll', 'sgx_driver_cert']
+      tags: 'sgx_driver'
 
     # We need to generate the certificate, add it to known base and sign the kernel module with it
     # can use from ansible crypto module: https://www.jeffgeerling.com/blog/2017/generating-self-signed-openssl-certs-ansible-24s-crypto-modules
