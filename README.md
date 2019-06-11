@@ -369,7 +369,38 @@ If there is a CPU error ("*...SGX functions are deactivated or SGX is not suppor
 For the second error ("*...SGX is available for CPU, but not enabled in BIOS. Consult the documentation for how to enable it in BIOS...*") see the BIOS/UEFI configuration for the machine. See [here](http://h17007.www1.hpe.com/docs/iss/proliant_uefi/UEFI_Moonshot_103117/GUID-5B0A4E24-26B7-46CC-8A12-5C403A14B466.html) more details.
 
 ## Notes about certificate enroll in BIOS/UEFI
-Starting with kernel version 4.4.0-20 the Secure Boot was enforced and as such the kernel modules need to be signed by a known CA to the machine (using MOK = machine owner key). The playbook **build_install_sgx.yaml** verifies if the CA is already enrolled on the machine (based on the DN or subject) and skips the adding phase if so. Else, the certificate is generated, added to MOKmanager with a password PASS_X and the machine is restarted. For this step, you will need to access the console to the configuring device and add to MOKmanager the password for enrollment and reboot again the device. The ansible execution will continue after booting with the driver enabling.
+Starting with kernel version 4.4.0-20 the Secure Boot was enforced and as such the kernel modules need to be signed by a known CA to the machine (using MOK = machine owner key). The playbook **build_install_sgx.yaml** verifies if the CA is already enrolled on the machine (based on the DN or subject) and skips the adding phase if so. Else, the certificate is generated, added to MOKmanager with a password PASS_X and the machine is restarted. For this step, you will need to access the console to the configuring device and add to MOKmanager the password for enrollment and reboot again the device. The ansible execution will continue after booting with the driver enabling. 
+
+See [here](https://sourceware.org/systemtap/wiki/SecureBoot) a step by step tutorial with screens for adding the key in MOKmanager.
+
+## Notes about rebooting
+As said [here](https://github.com/hstoenescu/Intel-sgx-ansible-playbook#notes-about-certificate-enroll-in-biosuefi), there is need to reboot the device to add the certificate to the trusting base. There is also need to restart it again after enabling the kernel module with 'modprobe' command. To do so, there is used the [wait_for_connection module](https://docs.ansible.com/ansible/latest/modules/wait_for_connection_module.html) with the following parameters:
+- **connect_timeout=20** (it tries to connect with a timeout of 20 seconds)
+- **delay=10** (waits 10 seconds after the reboot command to do a ssh connection)
+- **sleep=5** (sleep for 5 seconds between consecutive connections)
+- **timeout=300** (waits maximum 5 minutes for a successful connection)
+
+## Notes about kernel upgrade
+After a period of time, the kernel version might get upgraded which means the driver will not work anymore. To solve this problem, you only need to rerun the playbook **build_install_sgx.yaml** with the tag **sgx_driver**. After each installation, the kernel .ko file is deleted in order to create a new one each time the playbook is run. 
+
+**Explanation**: in the kernel module is a string called ***vermagic*** which contains the kernel version
+```console
+user@host $ strings isgx.ko | grep vermagic
+vermagic=4.18.0-20-generic SMP mod_unload 
+__UNIQUE_ID_vermagic13
+# this cannot be enabled on a version different from 4.18.0-20-generic
+
+# the error seen
+user@host $ sudo modprobe isgx
+modprobe: ERROR: could not insert 'isgx': Exec format error
+
+# also, if not enabling with modprobe and just reboot the device
+# another error can be seen in dmesg
+user@host $ dmesg | grep sgx
+[    6.280134] isgx: version magic '4.18.0-21-generic SMP mod_unload ' should be '4.18.0-20-generic SMP mod_unload '
+[   14.459845] isgx: version magic '4.18.0-21-generic SMP mod_unload ' should be '4.18.0-20-generic SMP mod_unload '
+[...]
+```
 
 # Running configuration
 
