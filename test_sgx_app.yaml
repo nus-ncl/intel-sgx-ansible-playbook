@@ -12,7 +12,7 @@
 # Application tested in SIM mode: https://github.com/hstoenescu/SGX-beginner-sample
 # Application test in HW mode: https://github.com/intel/linux-sgx/tree/master/SampleCode/RemoteAttestation
 
-- hosts: all
+- hosts: ncl2
   sudo: no
   vars:
     ## SDK ##
@@ -33,9 +33,9 @@
 
     - name: "[GENERAL] Complete the path on variables with the current user"
       set_fact:
-        ansible_repo="/home/{{ current_user.stdout }}/ansible_testing_repo"
-        sample_libcrypto="/home/{{ current_user.stdout }}/ansible_testing_repo/sdk/sample_libcrypto"
-        sample_code_ra="/home/{{ current_user.stdout }}/ansible_testing_repo/SampleCode/RemoteAttestation"
+        ansible_repo="/home/{{ current_user.stdout }}/linux-sgx"
+        sample_libcrypto="/home/{{ current_user.stdout }}/linux-sgx/sdk/sample_libcrypto"
+        sample_code_ra="/home/{{ current_user.stdout }}/linux-sgx/SampleCode/RemoteAttestation"
       tags: [ 'sim_test', 'hw_test' ]
 
     ## SIM MODE ##
@@ -60,6 +60,12 @@
 
     - name: "[SIM] Output - sample code in sim mode:"
       debug: msg="{{ app_sample_sim.stdout.split('\n') }}"
+      tags: 'sim_test'
+
+    - name: "[SIM] Clean the location for sample code by running 'make clean'"
+      make:
+        chdir: "{{ ansible_repo }}/SampleCode/beginner-sample"
+        target: clean
       tags: 'sim_test'
 
     ## Note: leave the repo for the first sample code in the path .../Sample/beginner-sample/ ##
@@ -96,4 +102,10 @@
       debug: msg="{{ app_sample_hw.stdout.split('\n') }}"
       tags: 'hw_test'
     
+    - name: "[HW] Clean the location for RemoteAttestation by running 'make clean'"
+      make:
+        chdir: "{{ sample_code_ra }}"
+        target: clean
+      tags: 'hw_test'
+
     ## Note: leave the sample_libcrypto files in RemoteAttestation folder for further runs ##
