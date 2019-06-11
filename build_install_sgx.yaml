@@ -46,7 +46,7 @@
 
     - name: "[GENERAL] Complete the path on variables with the current user"
       set_fact:
-        ansible_repo="/home/{{ current_user.stdout }}/ansible_testing_repo"
+        ansible_repo="/home/{{ current_user.stdout }}/linux-sgx"
         hw_location="/home/{{ current_user.stdout }}/sgx-hardware"
         driver_location="/home/{{ current_user.stdout }}/sgx-driver"
         openssl_cnf_file="/home/{{ current_user.stdout }}/SGX-setup-install/sgx_openssl.cnf"
@@ -59,6 +59,8 @@
         name: gcc
         state: latest
         update_cache: yes
+      become: yes
+      tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
 
     ##### SDK + PSW #####
     - name: "[SDK] Install required tools to build the Intel SGX SDK"
@@ -144,29 +146,6 @@
 
     - name: Source the new .bashrc file for current user
       shell: . /home/{{ current_user.stdout }}/.bashrc
-      tags: sgx_sdk
-
-    ## Get a sample code and run it - beginners example ##
-    - name: Clone the SGX beginner sample repository
-      git: repo={{ sample_repo }}
-           dest={{ ansible_repo }}/SampleCode/beginner-sample
-      tags: sgx_sdk
-
-    - name: Compile the code for SGX beginner sample project
-      shell: ". {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment && make SGX_MODE=SIM"
-      args:
-        chdir: "{{ ansible_repo }}/SampleCode/beginner-sample"
-      tags: sgx_sdk
-
-    - name: Run the sample beginner code and print the output
-      shell: ". {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment && ./app"
-      args:
-        chdir: "{{ ansible_repo }}/SampleCode/beginner-sample"
-      register: app_sample_sim
-      tags: sgx_sdk
-
-    ## Print sample code output ##
-    - debug: msg="{{ app_sample_sim.stdout.split('\n') }}"
       tags: sgx_sdk
 
     ############################################################################################################################################
