@@ -15,7 +15,7 @@
 
 # -- ubuntu 18.04 install -- #
 
-- hosts: all
+- hosts: ncl2
   sudo: no
   vars:
     ### SDK + PSW ###
@@ -344,13 +344,6 @@
       tags: sgx_driver  
       when: sb_value.stdout == "sb_yes"
 
-    # item.0 is the index in the array and item.1 is the actual content from that index
-    # - debug:
-    #     msg: "{{ item.1 }}"
-    #   with_indexed_items:
-    #     - "{{ cert_out.stdout.split('\n') }}"
-    #   tags: sgx_driver
-
     ## Note: changed from DER format to PEM (should work also enrolling and kernel module verification) ##
     - name: "[DRIVER] Generate an openssl private key and self-signed certificate using the openssl config file {{ openssl_cnf_file }}"
       shell: "openssl req -config {{ openssl_cnf_file }} 
@@ -426,7 +419,7 @@
       wait_for_connection:
         connect_timeout: 20
         sleep: 5
-        delay: 5
+        delay: 10
         timeout: 300
       tags: sgx_driver
       when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
@@ -450,6 +443,22 @@
       become: yes
       tags: sgx_driver
 
+    ## A new reboot is needed again after this step ! ##
+    - name: "[DRIVER] A reboot is needed after enabling the signed/not signed kernel module 'isgx.ko'"
+      shell: "reboot"
+      async: 1
+      poll: 0
+      tags: sgx_driver
+      become: yes
+
+    - name: "[DRIVER] Wait for reboot to complete. The kernel module should be usable after booting"
+      wait_for_connection:
+        connect_timeout: 20
+        sleep: 5
+        delay: 10
+        timeout: 300
+      tags: sgx_driver
+
     - name: "[DRIVER] Verify if the module 'isgx.ko' was enabled on device"
       shell: "lsmod | grep isgx"
       register: lsmod_out
@@ -462,9 +471,18 @@
       when: '"isgx" not in lsmod_out.stdout'
       tags: sgx_driver
 
-    # a new reboot may be needed again after this step
+    ## After a kernel upgrade, the kernel module needs to recompiled to add different content
+    ## like the vermagic - example:
+    ## user@host $ strings isgx.ko | grep vermagic
+    ## vermagic=4.18.0-20-generic SMP mod_unload 
 
-    # leave for the moment the sgx-driver folder. DO NOT DELETE IT!
+    - name: "[DRIVER] Clean the files from the sgx driver path {{ driver_location }}"
+      make:
+        chdir: "{{ driver_location }}"
+        target: clean
+      tags: sgx_driver
+
+    ## the rest of files for sgx-driver are kept there
 
     ##### PSW (platform software) #####
     - name: "[PSW] Build the SGX PSW installer"
