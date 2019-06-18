@@ -15,7 +15,7 @@
 
 # -- ubuntu 18.04 install -- #
 
-- hosts: ncl2
+- hosts: ibm
   sudo: no
   vars:
     ### SDK + PSW ###
@@ -90,10 +90,11 @@
 
     ## Build both sdk and psw with default configuration ## 
     ## Note: the folder size can be up to 500MB          ##
-    - name: "[SDK + PSW] Build the Intel SGX SDK and PSW. This may take a while ..."
+    - name: "[SDK] Build the Intel SGX SDK. This may take a while ..."
       make:
         chdir: "{{ ansible_repo }}"
-      tags: ['sgx_sdk', 'sgx_psw']
+        target: sdk
+      tags: sgx_sdk
 
     ##### SDK #####
     ## Note: after this operation can be up to 588MB ##
@@ -129,6 +130,7 @@
         {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
       with_items: ['build-essential', 'python']
       become: yes
+      tags: sgx_sdk
 
     - name: Install the Intel SGX SDK
       shell: "yes 'yes' | ./sgx_linux_x64_sdk_{{ sgx_version.stdout }}.bin"
@@ -140,12 +142,15 @@
     ## Note that we still need to source the environment when testing an application on this file ##
     - name: Add the source command to sgxsdk environment to .bashrc for the current user
       lineinfile:
-        path: /home/{{ current_user.stdout }}/.bashrc
+        #path: /home/{{ current_user.stdout }}/.bashrc
+        path: ~/.bashrc
         line: source {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment
       tags: sgx_sdk
 
     - name: Source the new .bashrc file for current user
-      shell: . /home/{{ current_user.stdout }}/.bashrc
+      shell: source ~/.bashrc
+      args:
+        executable: /bin/bash
       tags: sgx_sdk
 
     ############################################################################################################################################
@@ -259,8 +264,14 @@
       tags: sgx_driver
 
     ## If kernel module is < 4.4.0-20, then skip the module signing steps and go directly to enable it using modprobe ##
-    - name: "[DRIVER] Check the kernel version against the version {{ req_kernel_version }}"
-      shell: "if [ $(printf '%s\n' {{ req_kernel_version }} {{ kern_value.stdout }} | sort -V | head -n 1) = {{ req_kernel_version }} ]; then 
+    ## Also, there are some motherboards with support only for BIOS. There can be seen the following error when there is tried to use EFI only commands:
+    ##
+    ## user@host $ mokutil --export
+    ## EFI variables are not supported on this system
+    ##
+    ## Check if folder for efi exists (/sys/firmware/efi). If not, skip also the steps for signing the module
+    - name: "[DRIVER] Check the kernel version against the version {{ req_kernel_version }} and also if the efi folder for this firware exists on Linux machine"
+      shell: "if [ $(printf '%s\n' {{ req_kernel_version }} {{ kern_value.stdout }} | sort -V | head -n 1) = {{ req_kernel_version }} ] && [ -d /sys/firmware/efi ]; then 
                 echo 'sb_yes';
               else
                 echo 'sb_no';
@@ -294,9 +305,9 @@
       args:
         chdir: "{{ path_to_certs }}"
       register: cert_out
-      tags: sgx_driver
       when: sb_value.stdout == "sb_yes"
-
+      tags: sgx_driver
+  
     - name: "[DRIVER] Get the list of subjects from the exported certificates"
       shell: openssl x509 -in {{ item.1 }} -inform DER -subject -noout
       args:
@@ -304,6 +315,7 @@
       with_indexed_items:
         - "{{ cert_out.stdout.split('\n') }}"
       register: out_cert_subjects
+      when: sb_value.stdout == "sb_yes"
       tags: sgx_driver
 
     - name: "[DRIVER] Verify if in the list of enrolled certificates is one with the required subject"
@@ -311,7 +323,7 @@
       with_indexed_items:
         - "{{ out_cert_subjects }}"
       register: found_cert_subject
-      when: "'C = CA, ST = Singapore, L = Singapore, O = NUS, CN = Secure Boot Signing, emailAddress = example@example.com' in item.1.results[0].stdout"
+      when: sb_value.stdout == 'sb_yes' and 'C = CA, ST = Singapore, L = Singapore, O = NUS, CN = Secure Boot Signing, emailAddress = example@example.com' in item.1.results[0].stdout
       tags: sgx_driver
 
     - name: "[DRIVER] Delete the exported certificates from mokutil" # it doesn't mattter if there are/are not certificates in the path
@@ -320,7 +332,7 @@
         path: "{{ path_to_certs }}/{{ item.1 }}"
       with_indexed_items:
         - "{{ cert_out.stdout.split('\n') }}"
-      tags: sgx_driver  
+      tags: sgx_driver
       when: sb_value.stdout == "sb_yes"
 
     ## Note: changed from DER format to PEM (should work also enrolling and kernel module verification) ##
@@ -368,7 +380,7 @@
       fail:
         msg: "[DRIVER] The kernel module 'isgx.ko' does not contain the required message: 'Module signature appended'"
       tags: sgx_driver
-      when: '"Module signature appended" not in out_kern_module.stdout and sb_value.stdout == "sb_yes"'
+      when: 'sb_value.stdout == "sb_yes" and "Module signature appended" not in out_kern_module.stdout'
 
     - name: "[DRIVER] Convert the pem certificate 'MOK.pem' to DER format (needed by mokutil command)"
       shell: "openssl x509 -outform DER
@@ -422,13 +434,14 @@
       become: yes
       tags: sgx_driver
 
-    ## A new reboot is needed again after this step ! ##
+    ## A new reboot is needed again after this step - only if the kernel module was signed ! ##
     - name: "[DRIVER] A reboot is needed after enabling the signed/not signed kernel module 'isgx.ko'"
       shell: "reboot"
       async: 1
       poll: 0
       tags: sgx_driver
       become: yes
+      when: sb_value.stdout == "sb_yes"
 
     - name: "[DRIVER] Wait for reboot to complete. The kernel module should be usable after booting"
       wait_for_connection:
@@ -437,6 +450,7 @@
         delay: 10
         timeout: 300
       tags: sgx_driver
+      when: sb_value.stdout == "sb_yes"
 
     - name: "[DRIVER] Verify if the module 'isgx.ko' was enabled on device"
       shell: "lsmod | grep isgx"
@@ -464,6 +478,12 @@
     ## the rest of files for sgx-driver are kept there
 
     ##### PSW (platform software) #####
+    - name: "[PSW] Build the Intel SGX PSW. This may take a while ..."
+      make:
+        chdir: "{{ ansible_repo }}"
+        target: psw
+      tags: sgx_psw
+
     - name: "[PSW] Build the SGX PSW installer"
       make:
         chdir: "{{ ansible_repo }}"
@@ -495,7 +515,7 @@
       with_items: ['libssl-dev', 'libcurl4-openssl-dev', 'libprotobuf-dev']
       become: yes
       tags: sgx_psw
-    
+
     - name: "[PSW] Install the SGX PSW"
       command: "{{ item }} chdir={{ ansible_repo }}{{ psw_location }}"
       with_items:
@@ -503,7 +523,7 @@
         - dpkg -i ./libsgx-urts_{{ sgx_version.stdout }}-{{ os_codename.stdout }}{{ deb_version.stdout }}_amd64.deb
       become: yes
       tags: sgx_psw
-    
+
     - name: "[PSW] Make sure the aesmd service is up and running"
       service: 
         name=aesmd
