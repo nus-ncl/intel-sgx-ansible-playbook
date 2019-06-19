@@ -19,10 +19,9 @@
   sudo: no
   vars:
     ### SDK + PSW ###
-    sgx_repo: https://github.com/intel/linux-sgx
+    sgx_repo:     https://github.com/intel/linux-sgx
     sdk_location: /linux/installer/bin
     psw_location: /linux/installer/deb
-    sample_repo: https://github.com/hstoenescu/SGX-beginner-sample
 
     ### HW verification ###
     hw_repo: https://github.com/ayeks/SGX-hardware
@@ -44,13 +43,15 @@
       register: current_user
       tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
 
-    - name: "[GENERAL] Complete the path on variables with the current user"
+    - name: "[GENERAL] Set the home path for user"
       set_fact:
-        ansible_repo="/home/{{ current_user.stdout }}/linux-sgx"
-        hw_location="/home/{{ current_user.stdout }}/sgx-hardware"
-        driver_location="/home/{{ current_user.stdout }}/sgx-driver"
-        openssl_cnf_file="/home/{{ current_user.stdout }}/SGX-setup-install/sgx_openssl.cnf"
-        path_to_certs="/home/{{ current_user.stdout }}/SGX-setup-install"
+        home_path="/home/{{ current_user.stdout }}"
+      tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
+
+    - name: "[GENERAL] When the user is root, rewrite the path to /root"
+      set_fact: 
+        home_path="/root"
+      when: "'root' in current_user.stdout"
       tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
 
     ## General prerequisites ##
@@ -62,7 +63,13 @@
       become: yes
       tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
 
-    ##### SDK + PSW #####
+    ##### SDK + PSW repository #####
+    ### Note that all files are added in ~ or $HOME (/home/user for a non-root user or /root for root user) ###
+    - name: "[SDK + PSW] Set the required path variable for 'linux-sgx' repository clone"
+      set_fact:
+        ansible_repo: "{{ home_path }}/linux-sgx"
+      tags: [ 'sgx_sdk', 'sgx_psw' ]
+
     - name: "[SDK] Install required tools to build the Intel SGX SDK"
       action: >
         {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
@@ -97,7 +104,7 @@
       tags: sgx_sdk
 
     ##### SDK #####
-    ## Note: after this operation can be up to 588MB ##
+    ## Note: after this operation can be up to ~450MB ##
     - name: "[SDK + PSW] Build the Intel SGX SDK installer"
       make:
         chdir: "{{ ansible_repo }}"
@@ -125,29 +132,30 @@
       tags: ['sgx_sdk', 'sgx_psw']
 
     ## Install the Intel SGX SDK ##
-    - name: Install the required tools to use Intel SGX SDK
+    - name: "[SDK] Install the required tools to use Intel SGX SDK"
       action: >
         {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
       with_items: ['build-essential', 'python']
       become: yes
       tags: sgx_sdk
 
-    - name: Install the Intel SGX SDK
-      shell: "yes 'yes' | ./sgx_linux_x64_sdk_{{ sgx_version.stdout }}.bin"
+    - name: "[SDK] Install the Intel SGX SDK"
+      shell: "yes 'yes' | head -n 1 | ./sgx_linux_x64_sdk_{{ sgx_version.stdout }}.bin"
       args:
         chdir: "{{ ansible_repo }}{{ sdk_location }}"
-      tags: sgx_sdk
       become: yes
+      # become_method: sudo
+      # become_user: "{{ current_user }}"
+      tags: sgx_sdk
 
     ## Note that we still need to source the environment when testing an application on this file ##
-    - name: Add the source command to sgxsdk environment to .bashrc for the current user
+    - name: "[SDK] Add the source command to sgxsdk environment to .bashrc for the current user"
       lineinfile:
-        #path: /home/{{ current_user.stdout }}/.bashrc
         path: ~/.bashrc
         line: source {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment
       tags: sgx_sdk
 
-    - name: Source the new .bashrc file for current user
+    - name: "[SDK] Source the new .bashrc file for current user"
       shell: source ~/.bashrc
       args:
         executable: /bin/bash
@@ -156,6 +164,11 @@
     ############################################################################################################################################
     ## Hardware verification - before installing the DRIVER + PSW, there is need to verify if the hardware supports SGX in real mode ##
     ## Simulation works without using the true hardware, instead the instructions are simulated in software ##
+
+    - name: "[HW verification] Set the path variable for hardware verification repository clone"
+      set_fact:
+        hw_location: "{{ home_path }}/sgx-hardware"
+      tags: hw_verif
 
     - name: "[HW verification] Download the sgx hardware verification repository. 
              See the README from this link: {{ hw_repo }} for more information"
@@ -202,10 +215,28 @@
 
     ############################################################################################################################################
     ##### DRIVER #####
+
+    - name: "[DRIVER] Set the path variable for sgx driver repository folder"
+      set_fact:
+        driver_location:  "{{ home_path }}/sgx-driver"
+        ### CERT vars ###
+        openssl_cnf_file: "{{ home_path }}/SGX-setup-install/sgx_openssl.cnf"
+        path_to_certs:    "{{ home_path }}/SGX-setup-install"
+      tags: sgx_driver
+
     - name: "[DRIVER] Download the linux sgx driver repository: {{ driver_repo }}"
       git: repo={{ driver_repo }}
            dest={{ driver_location }}
       tags: sgx_driver
+
+    # - name: "test location"
+    #   shell: "cat {{ openssl_cnf_file }}"
+    #   register: out_openssl
+    #   tags: sgx_driver
+
+    # - debug:
+    #     msg: "{{ out_openssl.stdout }}"
+    #   tags: sgx_driver
 
     - name: "[DRIVER] Compile the driver code to obtain the kernel module 'isgx.ko'"
       make:
@@ -286,6 +317,14 @@
     ############################################################################################################################################
 
     # After a first run, we do not need to regenerate the certificate. Verify with mokutil the list of enrolled certificate
+    - name: "[DRIVER] In case the SB is enabled, create the folder 'SGX-setup-install'"
+      file:
+        path: "{{ path_to_certs }}"
+        state: directory
+        mode: '0775'
+      when: sb_value.stdout == "sb_yes"
+      tags: sgx_driver
+
     - name: "[DRIVER] Get the list of enrolled certificate in MOK"
       shell: mokutil --export
       args:
@@ -336,6 +375,13 @@
       when: sb_value.stdout == "sb_yes"
 
     ## Note: changed from DER format to PEM (should work also enrolling and kernel module verification) ##
+    - name: "[DRIVER] Copy the openssl cnf file from controller to host"
+      copy:
+        src:  sgx_openssl.cnf          # add the local path for cnf file
+        dest: "{{ openssl_cnf_file }}"
+      tags: sgx_driver
+      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+
     - name: "[DRIVER] Generate an openssl private key and self-signed certificate using the openssl config file {{ openssl_cnf_file }}"
       shell: "openssl req -config {{ openssl_cnf_file }} 
               -new -x509 -newkey rsa:2048 
@@ -344,6 +390,8 @@
               -out {{ path_to_certs }}/MOK.pem"
       tags: sgx_driver
       when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+
+    ## Note: leave the cnf file there, in case the user needs it ##
 
     - name: "[DRIVER] Check the signature of the self-signed certificate {{ path_to_certs }}/MOK.pem"
       shell: "openssl verify -CAfile {{ path_to_certs }}/MOK.pem {{ path_to_certs }}/MOK.pem"
