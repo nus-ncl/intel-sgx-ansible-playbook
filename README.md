@@ -207,7 +207,7 @@ ansible 2.8.0
 
 ## Configure ssh access to Ansible hosts
 
-### SSH public key
+### SSH public key - remote computer
 
 When pushing the modules to remote devices, there is need to access the devices without a password by copying the controller's public key to them. Ansible assumes by default there are used SSH keys and not password authentication (which is an overhead in case of multiple machines). 
 
@@ -258,17 +258,55 @@ Welcome to Ubuntu 18.04.2 LTS (GNU/Linux 4.18.0-20-generic x86_64)
 client1@domain1 $
 ```
 
+### SSH public key - local machine
+You want also to install SGX components on the local machine. After [installation of Ansible](https://github.com/hstoenescu/Intel-sgx-ansible-playbook#install-ansible) is completed, make sure you add the ssh public key to authorized hosts:
+```console
+# in case the pair (secret-public) keys is not generated
+user@host $ ssh-keygen -t rsa
+Generating public/private rsa key pair.
+Enter file in which to save the key (/home/user/.ssh/id_rsa): # complete here
+[...]
+
+# copy the public key to authorized_hosts
+user@host $ cat ~/.ssh/id_rsa.pub  >> ~/.ssh/authorized_keys 
+
+# simply check the ssh to localhost machine
+user@host $ ssh horia@localhost
+Welcome to Ubuntu 18.04.2 LTS (GNU/Linux 4.18.0-21-generic x86_64)
+
+ * Documentation:  https://help.ubuntu.com
+ * Management:     https://landscape.canonical.com
+ * Support:        https://ubuntu.com/advantage
+
+[...]
+user@host $
+```
+
 ### Python interpreter
 
-The next part is to verify that python 2 is installed on the remote devices. Ansible uses the python interpreter located at */usr/bin/python* to run the pushed modules on the hosts:
+The next part is to verify that python 2 is installed on the remote devices/local one. Ansible uses the python interpreter located at */usr/bin/python* to run the pushed modules on the machines:
 ```console
+# check firstly if python 2 exists already
+client1@domain1 $ ls /usr/bin/python*
+
+# in this case there is no executable for python, so install it
 client1@domain1 $ sudo apt-get update
 client1@domain1 $ sudo apt-get install python
 ```
+Also, starting with Ansible version 2.5, there was added support also for python3 (until that it was considered a tech preview). By default there is added the executable for version 2 for ansible:
+```console
+user@host $ ansible --version
+ansible 2.8.1
+[...]
+  python version = 2.7.15+ (default, Nov 27 2018, 23:36:35) [GCC 7.3.0]
+```
+In case you want or need to upgrade ansible to use the version 3 of python, see this [documentation](https://docs.ansible.com/ansible/latest/reference_appendices/python_3_support.html#on-the-controller-side). 
+
+The 2 playbooks from this repository were tested successfully with the version 2 of it.
 
 ### sudo
 
-The last part consists in verifying the sudo rules from */etc/sudoers* for each remote machines. There is need to have this format for group members:
+The last part consists in verifying the sudo rules from */etc/sudoers* for each remote machines/local one. There is need to have this format for group members:
 ```console
 client1@domain1 $ sudo vim /etc/sudoers
 [...]
@@ -281,7 +319,7 @@ client1   ALL=(ALL) NOPASSWD:ALL
 ```
 This is necessary for operations that require admin rights (like installing a package, modifying a file owned by root etc).
 
-Repeat all these 3 steps for each remote device you will need to configure.
+Repeat all these 3 steps for each remote/local device you will need to configure.
 
 # SGX-setup-install
 
@@ -361,6 +399,12 @@ TASK [Gathering Facts] *********************************************************
 ok: [127.0.0.1]
 [...]
 ```
+# Good to know
+
+## Notes about saving locations
+In case the user is a simple one (a non-root one), the location for saving linux-sgx, linux-sgx-driver etc. is in */home/$USER/...* . For a root one (which is not recommended) is */root/...* .
+This is verified in the beginning of the playbook **build_install_sgx.yaml** for each type of tags.
+
 ## Notes about hardware support
 The SDK can be installed on any computer (with/without SGX support in hardware). For the driver + PSW components there is need to verify the hardware (see tag: **hw_verif**).  
 
@@ -368,7 +412,42 @@ If there is a CPU error ("*...SGX functions are deactivated or SGX is not suppor
 
 For the second error ("*...SGX is available for CPU, but not enabled in BIOS. Consult the documentation for how to enable it in BIOS...*") see the BIOS/UEFI configuration for the machine. See [here](http://h17007.www1.hpe.com/docs/iss/proliant_uefi/UEFI_Moonshot_103117/GUID-5B0A4E24-26B7-46CC-8A12-5C403A14B466.html) more details.
 
-## Notes about certificate enroll in BIOS/UEFI
+## Note about BIOS vs UEFI
+There are some machines with no UEFI support or no UEFI enabled on it (only BIOS). This can be simply verified in 2 ways:
+```console
+user@host $ mokutil --sb-state
+EFI variables are not supported on this system
+
+# or
+
+user@host $ ls /sys/firmware/efi
+ls: cannot access '/sys/firmware/efi': No such file or directory
+
+# EFI boot manager also not working
+user@host $ efibootmgr 
+EFI variables are not supported on this system.
+```
+If UEFI is enabled, the following can be seen:
+```console
+user@host $ mokutil --sb-state
+SecureBoot enabled
+
+user@host $ ls /sys/firmware/efi
+config_table  efivars  esrt  fw_platform_size  fw_vendor  runtime  runtime-map  systab  vars
+
+# sample from a desktop with Linux and Windows in dual boot
+user@host $ efibootmgr 
+BootCurrent: 0001
+Timeout: 2 seconds
+BootOrder: 0001,0000,0007,0008
+Boot0000* Windows Boot Manager
+Boot0001* ubuntu
+Boot0007* Onboard NIC(IPV4)
+Boot0008* Onboard NIC(IPV6)
+```
+The playbook **build_install_sgx.yaml** verifies the existance of folder path '/sys/firmware/efi'. In case there is no such folder, the signing of module is skipped (as in the case of kernel version < 4.4.0-20 - see [below](https://github.com/hstoenescu/Intel-sgx-ansible-playbook#notes-about-certificate-enroll-in-uefi) more details). 
+
+## Notes about certificate enroll in UEFI
 Starting with kernel version 4.4.0-20 the Secure Boot was enforced and as such the kernel modules need to be signed by a known CA to the machine (using MOK = machine owner key). The playbook **build_install_sgx.yaml** verifies if the CA is already enrolled on the machine (based on the DN or subject) and skips the adding phase if so. Else, the certificate is generated, added to MOKmanager with a password PASS_X and the machine is restarted. For this step, you will need to access the console to the configuring device and add to MOKmanager the password for enrollment and reboot again the device. The ansible execution will continue after booting with the driver enabling. 
 
 See [here](https://sourceware.org/systemtap/wiki/SecureBoot) a step by step tutorial with screens for adding the key in MOKmanager.
