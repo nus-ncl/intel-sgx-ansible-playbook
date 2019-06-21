@@ -405,6 +405,8 @@ ok: [127.0.0.1]
 In case the user is a simple one (a non-root one), the location for saving linux-sgx, linux-sgx-driver etc. is in */home/$USER/...* . For a root one (which is not recommended) is */root/...* .
 This is verified in the beginning of the playbook **build_install_sgx.yaml** for each type of tags.
 
+Also note that starting with 2.9 the sudo_user (root) may not be supported as a client for connection (see in hosts file: ansible_user) according to this warning: ***[DEPRECATION WARNING]: Instead of sudo/sudo_user, use become/become_user and make sure become_method is 'sudo' (default). This feature will be removed in version 2.9.***
+
 ## Notes about hardware support
 The SDK can be installed on any computer (with/without SGX support in hardware). For the driver + PSW components there is need to verify the hardware (see tag: **hw_verif**).  
 
