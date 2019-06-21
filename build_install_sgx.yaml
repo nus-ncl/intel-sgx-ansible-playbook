@@ -60,7 +60,9 @@
         name: gcc
         state: latest
         update_cache: yes
+        force_apt_get: yes
       become: yes
+      become_method: sudo
       tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
 
     ##### SDK + PSW repository #####
@@ -71,17 +73,42 @@
       tags: [ 'sgx_sdk', 'sgx_psw' ]
 
     - name: "[SDK] Install required tools to build the Intel SGX SDK"
-      action: >
-        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
-      with_items: ['build-essential', 'ocaml', 'ocamlbuild', 'automake', 'autoconf', 'libtool', 'wget', 'python', 'libssl-dev']
+      apt:
+        name: "{{ packages }}"
+        state: latest
+        update_cache: yes
+        force_apt_get: yes
+      vars:
+        packages:
+          - build-essential
+          - ocaml
+          - ocamlbuild
+          - automake
+          - autoconf
+          - libtool
+          - wget
+          - python
+          - libssl-dev
       become: yes
+      become_method: sudo
       tags: sgx_sdk
 
     - name: "[PSW] Install additional required tools to build the Intel SGX PSW"
-      action: >
-        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
-      with_items: ['libssl-dev', 'libcurl4-openssl-dev', 'protobuf-compiler', 'libprotobuf-dev', 'debhelper', 'cmake']
+      apt:
+        name: "{{ packages }}"
+        state: latest
+        update_cache: yes
+        force_apt_get: yes
+      vars:
+        packages:
+          - libssl-dev
+          - libcurl4-openssl-dev
+          - protobuf-compiler
+          - libprotobuf-dev
+          - debhelper
+          - cmake
       become: yes
+      become_method: sudo
       tags: sgx_psw
 
     - name: "[SDK + PSW] Clone the linux-sgx repository to the current machine"
@@ -99,7 +126,7 @@
     ## Note: the folder size can be up to 500MB          ##
     - name: "[SDK] Build the Intel SGX SDK. This may take a while ..."
       make:
-        chdir: "{{ ansible_repo }}"
+        chdir:  "{{ ansible_repo }}"
         target: sdk
       tags: sgx_sdk
 
@@ -132,20 +159,13 @@
       tags: ['sgx_sdk', 'sgx_psw']
 
     ## Install the Intel SGX SDK ##
-    - name: "[SDK] Install the required tools to use Intel SGX SDK"
-      action: >
-        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
-      with_items: ['build-essential', 'python']
-      become: yes
-      tags: sgx_sdk
-
+    ## Note: the required tools to install intel sgx sdk are already verified/installed above: https://github.com/intel/linux-sgx#prerequisites-1
     - name: "[SDK] Install the Intel SGX SDK"
       shell: "yes 'yes' | head -n 1 | ./sgx_linux_x64_sdk_{{ sgx_version.stdout }}.bin"
       args:
         chdir: "{{ ansible_repo }}{{ sdk_location }}"
       become: yes
-      # become_method: sudo
-      # become_user: "{{ current_user }}"
+      become_method: sudo
       tags: sgx_sdk
 
     ## Note that we still need to source the environment when testing an application on this file ##
@@ -229,15 +249,6 @@
            dest={{ driver_location }}
       tags: sgx_driver
 
-    # - name: "test location"
-    #   shell: "cat {{ openssl_cnf_file }}"
-    #   register: out_openssl
-    #   tags: sgx_driver
-
-    # - debug:
-    #     msg: "{{ out_openssl.stdout }}"
-    #   tags: sgx_driver
-
     - name: "[DRIVER] Compile the driver code to obtain the kernel module 'isgx.ko'"
       make:
         chdir: "{{ driver_location }}"
@@ -273,6 +284,7 @@
         update_cache: yes
       when: '"install ok installed" not in kern_headers_out.stdout'
       become: yes
+      become_method: sudo
       tags: sgx_driver
 
     - name: "[DRIVER] Install the SGX driver - create the directory for the kernel module isgx (root:root with 0755 mode)"
@@ -283,6 +295,7 @@
         group:   root
         mode:    0755
       become:    yes
+      become_method: sudo
       tags: sgx_driver
 
     - name: "[DRIVER] Install the SGX driver - copy kernel module 'isgx.ko' to sgx directory and add it to etc modules"
@@ -292,6 +305,7 @@
         - sh -c "cat /etc/modules | grep -Fxq isgx || echo isgx >> /etc/modules"
         - /sbin/depmod
       become: yes
+      become_method: sudo
       tags: sgx_driver
 
     ## If kernel module is < 4.4.0-20, then skip the module signing steps and go directly to enable it using modprobe ##
@@ -330,6 +344,7 @@
       args:
         chdir: "{{ path_to_certs }}"
       become: yes
+      become_method: sudo
       tags: sgx_driver
       when: sb_value.stdout == "sb_yes"
     
@@ -413,6 +428,7 @@
               {{ path_to_certs }}/MOK.pem 
               /lib/modules/{{ kern_value.stdout }}/kernel/drivers/intel/sgx/isgx.ko"
       become: yes
+      become_method: sudo
       tags: sgx_driver
       when: sb_value.stdout == "sb_yes"
 
@@ -442,6 +458,7 @@
             There is need to add a password for 2 times"
       shell: 'yes "horia" | head -n 2 | mokutil --import {{ path_to_certs }}/MOK.der'
       become: yes
+      become_method: sudo
       tags: sgx_driver
       when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
 
@@ -452,6 +469,7 @@
       poll: 0
       tags: sgx_driver
       become: yes
+      become_method: sudo
       when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
     
     - name: "[DRIVER] Wait for reboot to complete. Add to the remote device the password in MOKManager"
@@ -467,6 +485,7 @@
       shell: "cat /proc/keys | grep NUS"
       register: out_proc_keys
       become: yes
+      become_method: sudo
       tags: sgx_driver
       when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
 
@@ -480,6 +499,7 @@
     - name: "[DRIVER] Enable the module 'isgx.ko' on device"
       shell: "modprobe isgx"
       become: yes
+      become_method: sudo
       tags: sgx_driver
 
     ## A new reboot is needed again after this step - only if the kernel module was signed ! ##
@@ -489,6 +509,7 @@
       poll: 0
       tags: sgx_driver
       become: yes
+      become_method: sudo
       when: sb_value.stdout == "sb_yes"
 
     - name: "[DRIVER] Wait for reboot to complete. The kernel module should be usable after booting"
@@ -504,6 +525,7 @@
       shell: "lsmod | grep isgx"
       register: lsmod_out
       become: yes
+      become_method: sudo
       tags: sgx_driver
 
     - name: "[DRIVER] Fail the play if the module 'isgx' is not found enabled on the device"
@@ -558,10 +580,18 @@
       tags: sgx_psw
 
     - name: "[PSW] Install the prerequisites libraries"
-      action: >
-        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
-      with_items: ['libssl-dev', 'libcurl4-openssl-dev', 'libprotobuf-dev']
+      apt:
+        name: "{{ packages }}"
+        state: latest
+        update_cache: yes
+        force_apt_get: yes
+      vars:
+        packages:
+          - libssl-dev
+          - libcurl4-openssl-dev
+          - libprotobuf-dev
       become: yes
+      become_method: sudo
       tags: sgx_psw
 
     - name: "[PSW] Install the SGX PSW"
@@ -570,6 +600,7 @@
         - dpkg -i ./libsgx-enclave-common_{{ sgx_version.stdout}}-{{ os_codename.stdout }}{{ deb_version.stdout }}_amd64.deb
         - dpkg -i ./libsgx-urts_{{ sgx_version.stdout }}-{{ os_codename.stdout }}{{ deb_version.stdout }}_amd64.deb
       become: yes
+      become_method: sudo
       tags: sgx_psw
 
     - name: "[PSW] Make sure the aesmd service is up and running"
@@ -578,4 +609,5 @@
         state=started
         enabled=yes 
       become: yes
+      become_method: sudo
       tags: sgx_psw
