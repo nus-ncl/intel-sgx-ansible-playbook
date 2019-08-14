@@ -13,7 +13,7 @@
 # Application test in HW mode: https://github.com/intel/linux-sgx/tree/master/SampleCode/RemoteAttestation
 
 - hosts: ncl2
-  sudo: no
+  become: no
   vars:
     ## SDK ##
     sdk_location: /linux/installer/bin
