@@ -16,7 +16,7 @@
 # -- ubuntu 18.04 install -- #
 
 - hosts: ncl2
-  sudo: no
+  become: no
   vars:
     ### SDK + PSW ###
     sgx_repo: https://github.com/intel/linux-sgx
