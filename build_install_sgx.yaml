@@ -135,9 +135,10 @@
 
     ## Install the Intel SGX SDK ##
     - name: Install the required tools to use Intel SGX SDK
-      action: >
-        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
-      with_items: ['build-essential', 'python']
+      apt:
+        name: ['build-essential', 'python']
+        state: latest
+        update_cache: yes
       become: yes
 
     - name: Install the Intel SGX SDK
@@ -500,9 +501,10 @@
       tags: sgx_psw
 
     - name: "[PSW] Install the prerequisites libraries"
-      action: >
-        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
-      with_items: ['libssl-dev', 'libcurl4-openssl-dev', 'libprotobuf-dev']
+      apt: 
+        name: ['libssl-dev', 'libcurl4-openssl-dev', 'libprotobuf-dev']
+        state: latest
+        update_cache: yes
       become: yes
       tags: sgx_psw
     
