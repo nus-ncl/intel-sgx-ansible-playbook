@@ -88,12 +88,19 @@
         chdir: "{{ ansible_repo }}"
       tags: ['sgx_sdk', 'sgx_psw']
 
+    ## Build only sdk with default configuration         ## 
+    ## Note: the folder size can be up to 500MB          ##
+    - name: "[SDK] Build the Intel SGX SDK. This may take a while ..."
+      make:
+        chdir: "{{ ansible_repo }}/sdk"
+      tags: sgx_sdk
+
     ## Build both sdk and psw with default configuration ## 
     ## Note: the folder size can be up to 500MB          ##
-    - name: "[SDK + PSW] Build the Intel SGX SDK and PSW. This may take a while ..."
+    - name: "[PSW] Build the Intel SGX SDK and PSW. This may take a while ..."
       make:
         chdir: "{{ ansible_repo }}"
-      tags: ['sgx_sdk', 'sgx_psw']
+      tags: sgx_psw
 
     ##### SDK #####
     ## Note: after this operation can be up to 588MB ##
