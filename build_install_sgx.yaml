@@ -107,7 +107,7 @@
 
     ##### SDK #####
     ## Note: after this operation can be up to 588MB ##
-    - name: "[SDK + PSW] Build the Intel SGX SDK installer"
+    - name: "[SDK] Build the Intel SGX SDK installer"
       make:
         chdir: "{{ ansible_repo }}"
         target: sdk_install_pkg
