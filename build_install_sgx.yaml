@@ -63,17 +63,20 @@
       tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
 
     ##### SDK + PSW #####
+
     - name: "[SDK] Install required tools to build the Intel SGX SDK"
-      action: >
-        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
-      with_items: ['build-essential', 'ocaml', 'ocamlbuild', 'automake', 'autoconf', 'libtool', 'wget', 'python', 'libssl-dev']
+      apt:
+        name: ['build-essential', 'ocaml', 'ocamlbuild', 'automake', 'autoconf', 'libtool', 'wget', 'python', 'libssl-dev']
+        state: latest
+        update_cache: yes
       become: yes
       tags: sgx_sdk
 
     - name: "[PSW] Install additional required tools to build the Intel SGX PSW"
-      action: >
-        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
-      with_items: ['libssl-dev', 'libcurl4-openssl-dev', 'protobuf-compiler', 'libprotobuf-dev', 'debhelper', 'cmake']
+      apt:
+        name: ['libssl-dev', 'libcurl4-openssl-dev', 'protobuf-compiler', 'libprotobuf-dev', 'debhelper', 'cmake']
+        state: latest
+        update_cache: yes
       become: yes
       tags: sgx_psw
 
