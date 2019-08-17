@@ -342,19 +342,19 @@
               -keyout {{ path_to_certs }}/MOK.priv 
               -out {{ path_to_certs }}/MOK.pem"
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
 
     - name: "[DRIVER] Check the signature of the self-signed certificate {{ path_to_certs }}/MOK.pem"
       shell: "openssl verify -CAfile {{ path_to_certs }}/MOK.pem {{ path_to_certs }}/MOK.pem"
       register: cert_verify
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
 
     - name: "[DRIVER] Fail the play if the certificate's {{ path_to_certs }}/MOK.pem signature is not OK"
       fail:
         msg: "[DRIVER] The certificate's {{ path_to_certs }}/MOK.pem signature is not OK"
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and "MOK.pem: OK" not in cert_verify.stdout and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and "MOK.pem: OK" not in cert_verify.stdout and sb_value.stdout == "sb_yes"'
 
     ############################################################################################################################################
     ## Sign the module isgx.ko using the private key from above ##
@@ -386,15 +386,15 @@
               -in  {{ path_to_certs }}/MOK.pem
               -out {{ path_to_certs }}/MOK.der"
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
     
     ## Use mokutil to import the certificate to trusting base ##
     - name: "[DRIVER] Enroll the key to shim (the trusting base of certificates) in order to verify the signed kernel module.
             There is need to add a password for 2 times"
-      shell: 'yes "horia" | head -n 2 | mokutil --import {{ path_to_certs }}/MOK.der'
+      shell: 'yes "sjm" | head -n 2 | mokutil --import {{ path_to_certs }}/MOK.der'
       become: yes
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
 
     ## On this next step, we need to reboot the device ##
     - name: "[DRIVER] Reboot the device after importing cert to shim"
@@ -403,7 +403,7 @@
       poll: 0
       tags: sgx_driver
       become: yes
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
     
     - name: "[DRIVER] Wait for reboot to complete. Add to the remote device the password in MOKManager"
       wait_for_connection:
@@ -412,20 +412,20 @@
         delay: 10
         timeout: 300
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
 
     - name: "[DRIVER] After the reboot is completed, verify the /proc/keys file - need to exist at least 1 CN = NUS there "
       shell: "cat /proc/keys | grep NUS"
       register: out_proc_keys
       become: yes
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
 
     - name: "[DRIVER] Fail the play if at least 1 CN = NUS is not found in the /proc/keys file"
       fail:
         msg: "[DRIVER] Failed to find at least 1 CN = NUS in the /proc/keys file"
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and "NUS: Secure Boot Signing" not in out_proc_keys.stdout and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and "NUS: Secure Boot Signing" not in out_proc_keys.stdout and sb_value.stdout == "sb_yes"'
 
     ## Enable the kernel module 'isgx.ko' ##
     - name: "[DRIVER] Enable the module 'isgx.ko' on device"
