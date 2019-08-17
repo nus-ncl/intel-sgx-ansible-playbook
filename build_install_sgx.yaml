@@ -30,6 +30,7 @@
 
     ### DRIVER ###
     driver_repo: https://github.com/intel/linux-sgx-driver
+    openssl_cnf_template: https://raw.githubusercontent.com/nus-ncl/intel-sgx-ansible-playbook/master/sgx_openssl.cnf
 
     ### kernel ###
     # according to this post: https://askubuntu.com/questions/760671/could-not-load-vboxdrv-after-upgrade-to-ubuntu-16-04-and-i-want-to-keep-secur/768310#768310
@@ -284,6 +285,38 @@
     # openssl_privatekey, openssl_csr and openssl_certificate
 
     ############################################################################################################################################
+
+    # Ensure that {{ path_to_certs }} really exists with an sgx_openssl.cnf
+    - name: "[DRIVER] Create {{ path_to_certs }} if it does not exist"
+      file:
+        path: "{{ path_to_certs }}"
+        state: directory
+      tags: sgx_driver
+
+    - name: "[DRIVER] Probe {{ openssl_cnf_file }}"
+      stat:
+        path: "{{ openssl_cnf_file }}"
+      register: openssl_cnf_file_stat
+      tags: sgx_driver
+
+    - name: "[DRIVER] Download SGX OpenSSL Config from {{ openssl_cnf_template }}"
+      get_url:
+        url: "{{ openssl_cnf_template }}"
+        dest: "{{ openssl_cnf_file }}"
+      when: openssl_cnf_file_stat.stat['exists'] == false
+      tags: sgx_driver
+
+    - name: "[DRIVER] Probe {{ openssl_cnf_file }}"
+      stat:
+        path: "{{ openssl_cnf_file }}"
+      register: openssl_cnf_file_stat
+      tags: sgx_driver
+
+    - name: "[DRIVER] Fail if SGX OpenSSL Config File isn't a regular file"
+      fail:
+        msg: "{{ openssl_cnf_file }} isn't a regular file"
+      when: openssl_cnf_file_stat.stat['isreg'] == false
+      tags: sgx_driver
 
     # After a first run, we do not need to regenerate the certificate. Verify with mokutil the list of enrolled certificate
     - name: "[DRIVER] Get the list of enrolled certificate in MOK"
