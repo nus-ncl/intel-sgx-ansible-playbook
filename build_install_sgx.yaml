@@ -47,11 +47,11 @@
 
     - name: "[GENERAL] Complete the path on variables with the current user"
       set_fact:
-        ansible_repo="/home/{{ current_user.stdout }}/linux-sgx"
-        hw_location="/home/{{ current_user.stdout }}/sgx-hardware"
-        driver_location="/home/{{ current_user.stdout }}/sgx-driver"
-        openssl_cnf_file="/home/{{ current_user.stdout }}/SGX-setup-install/sgx_openssl.cnf"
-        path_to_certs="/home/{{ current_user.stdout }}/SGX-setup-install"
+        ansible_repo="/users/{{ current_user.stdout }}/linux-sgx"
+        hw_location="/users/{{ current_user.stdout }}/sgx-hardware"
+        driver_location="/users/{{ current_user.stdout }}/sgx-driver"
+        openssl_cnf_file="/users/{{ current_user.stdout }}/SGX-setup-install/sgx_openssl.cnf"
+        path_to_certs="/users/{{ current_user.stdout }}/SGX-setup-install"
       tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
 
     ## General prerequisites ##
@@ -152,12 +152,12 @@
     ## Note that we still need to source the environment when testing an application on this file ##
     - name: Add the source command to sgxsdk environment to .bashrc for the current user
       lineinfile:
-        path: /home/{{ current_user.stdout }}/.bashrc
+        path: /users/{{ current_user.stdout }}/.bashrc
         line: source {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment
       tags: sgx_sdk
 
     - name: Source the new .bashrc file for current user
-      shell: . /home/{{ current_user.stdout }}/.bashrc
+      shell: . /users/{{ current_user.stdout }}/.bashrc
       tags: sgx_sdk
 
     ############################################################################################################################################

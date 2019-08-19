@@ -33,9 +33,9 @@
 
     - name: "[GENERAL] Complete the path on variables with the current user"
       set_fact:
-        ansible_repo="/home/{{ current_user.stdout }}/linux-sgx"
-        sample_libcrypto="/home/{{ current_user.stdout }}/linux-sgx/sdk/sample_libcrypto"
-        sample_code_ra="/home/{{ current_user.stdout }}/linux-sgx/SampleCode/RemoteAttestation"
+        ansible_repo="/users/{{ current_user.stdout }}/linux-sgx"
+        sample_libcrypto="/users/{{ current_user.stdout }}/linux-sgx/sdk/sample_libcrypto"
+        sample_code_ra="/users/{{ current_user.stdout }}/linux-sgx/SampleCode/RemoteAttestation"
       tags: [ 'sim_test', 'hw_test' ]
 
     ## SIM MODE ##

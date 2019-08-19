@@ -15,7 +15,7 @@
 # 127.0.0.1 (or any other ip from 127.0.0.0/8)
 
 [ncl2]
-172.27.100.200 ansible_connection=ssh ansible_user=user2
+192.168.1.7 ansible_connection=ssh ansible_user=ncl
 
 [ncl3]
 172.17.200.200 ansible_connection=ssh ansible_user=user3
