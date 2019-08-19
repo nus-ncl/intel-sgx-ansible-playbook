@@ -157,7 +157,7 @@
     ## Note that we still need to source the environment when testing an application on this file ##
     - name: Add the source command to sgxsdk environment to .bashrc for the current user
       lineinfile:
-        path: {{ current_home_directory.stdout }}/.bashrc
+        path: "{{ current_home_directory.stdout }}/.bashrc"
         line: source {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment
       tags: sgx_sdk
 
