@@ -16,7 +16,7 @@
 # -- ubuntu 18.04 install -- #
 
 - hosts: ncl2
-  sudo: no
+  become: no
   vars:
     ### SDK + PSW ###
     sgx_repo: https://github.com/intel/linux-sgx
@@ -30,6 +30,7 @@
 
     ### DRIVER ###
     driver_repo: https://github.com/intel/linux-sgx-driver
+    openssl_cnf_template: https://raw.githubusercontent.com/nus-ncl/intel-sgx-ansible-playbook/master/sgx_openssl.cnf
 
     ### kernel ###
     # according to this post: https://askubuntu.com/questions/760671/could-not-load-vboxdrv-after-upgrade-to-ubuntu-16-04-and-i-want-to-keep-secur/768310#768310
@@ -39,18 +40,23 @@
     # note that all packages are updated or installed if not found
 
   tasks:
-    - name: "[GENERAL] Get the current user from the current machine"
-      shell: "whoami"
-      register: current_user
+    # - name: "[GENERAL] Get the current user from the current machine"
+    #   shell: "whoami"
+    #   register: current_user
+    #   tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
+
+    - name: "[GENERAL] Get the home directory from the current machine"
+      shell: "pwd"
+      register: current_home_directory
       tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
 
     - name: "[GENERAL] Complete the path on variables with the current user"
       set_fact:
-        ansible_repo="/home/{{ current_user.stdout }}/linux-sgx"
-        hw_location="/home/{{ current_user.stdout }}/sgx-hardware"
-        driver_location="/home/{{ current_user.stdout }}/sgx-driver"
-        openssl_cnf_file="/home/{{ current_user.stdout }}/SGX-setup-install/sgx_openssl.cnf"
-        path_to_certs="/home/{{ current_user.stdout }}/SGX-setup-install"
+        ansible_repo="{{ current_home_directory.stdout }}/linux-sgx"
+        hw_location="{{ current_home_directory.stdout }}/sgx-hardware"
+        driver_location="{{ current_home_directory.stdout }}/sgx-driver"
+        openssl_cnf_file="{{ current_home_directory.stdout }}/SGX-setup-install/sgx_openssl.cnf"
+        path_to_certs="{{ current_home_directory.stdout }}/SGX-setup-install"
       tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
 
     ## General prerequisites ##
@@ -63,17 +69,30 @@
       tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
 
     ##### SDK + PSW #####
-    - name: "[SDK] Install required tools to build the Intel SGX SDK"
-      action: >
-        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
-      with_items: ['build-essential', 'ocaml', 'ocamlbuild', 'automake', 'autoconf', 'libtool', 'wget', 'python', 'libssl-dev']
+
+    - name: "[SDK] Install required tools to build the Intel SGX SDK for Ubuntu 18.04"
+      apt:
+        name: ['build-essential', 'ocaml', 'ocamlbuild', 'automake', 'autoconf', 'libtool', 'wget', 'python', 'libssl-dev']
+        state: latest
+        update_cache: yes
       become: yes
+      when: "ansible_distribution_version != '18.04'"
+      tags: sgx_sdk
+
+    - name: "[SDK] Install required tools to build the Intel SGX SDK for Ubuntu 16.04"
+      apt:
+        name: ['build-essential', 'ocaml', 'automake', 'autoconf', 'libtool', 'wget', 'python', 'libssl-dev']
+        state: latest
+        update_cache: yes
+      become: yes
+      when: "ansible_distribution_version != '16.04'"
       tags: sgx_sdk
 
     - name: "[PSW] Install additional required tools to build the Intel SGX PSW"
-      action: >
-        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
-      with_items: ['libssl-dev', 'libcurl4-openssl-dev', 'protobuf-compiler', 'libprotobuf-dev', 'debhelper', 'cmake']
+      apt:
+        name: ['libssl-dev', 'libcurl4-openssl-dev', 'protobuf-compiler', 'libprotobuf-dev', 'debhelper', 'cmake']
+        state: latest
+        update_cache: yes
       become: yes
       tags: sgx_psw
 
@@ -88,16 +107,23 @@
         chdir: "{{ ansible_repo }}"
       tags: ['sgx_sdk', 'sgx_psw']
 
+    ## Build only sdk with default configuration         ## 
+    ## Note: the folder size can be up to 500MB          ##
+    - name: "[SDK] Build the Intel SGX SDK. This may take a while ..."
+      make:
+        chdir: "{{ ansible_repo }}/sdk"
+      tags: sgx_sdk
+
     ## Build both sdk and psw with default configuration ## 
     ## Note: the folder size can be up to 500MB          ##
-    - name: "[SDK + PSW] Build the Intel SGX SDK and PSW. This may take a while ..."
+    - name: "[PSW] Build the Intel SGX SDK and PSW. This may take a while ..."
       make:
         chdir: "{{ ansible_repo }}"
-      tags: ['sgx_sdk', 'sgx_psw']
+      tags: sgx_psw
 
     ##### SDK #####
     ## Note: after this operation can be up to 588MB ##
-    - name: "[SDK + PSW] Build the Intel SGX SDK installer"
+    - name: "[SDK] Build the Intel SGX SDK installer"
       make:
         chdir: "{{ ansible_repo }}"
         target: sdk_install_pkg
@@ -125,9 +151,10 @@
 
     ## Install the Intel SGX SDK ##
     - name: Install the required tools to use Intel SGX SDK
-      action: >
-        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
-      with_items: ['build-essential', 'python']
+      apt:
+        name: ['build-essential', 'python']
+        state: latest
+        update_cache: yes
       become: yes
 
     - name: Install the Intel SGX SDK
@@ -140,12 +167,12 @@
     ## Note that we still need to source the environment when testing an application on this file ##
     - name: Add the source command to sgxsdk environment to .bashrc for the current user
       lineinfile:
-        path: /home/{{ current_user.stdout }}/.bashrc
+        path: "{{ current_home_directory.stdout }}/.bashrc"
         line: source {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment
       tags: sgx_sdk
 
     - name: Source the new .bashrc file for current user
-      shell: . /home/{{ current_user.stdout }}/.bashrc
+      shell: . {{ current_home_directory.stdout }}/.bashrc
       tags: sgx_sdk
 
     ############################################################################################################################################
@@ -274,6 +301,38 @@
 
     ############################################################################################################################################
 
+    # Ensure that {{ path_to_certs }} really exists with an sgx_openssl.cnf
+    - name: "[DRIVER] Create {{ path_to_certs }} if it does not exist"
+      file:
+        path: "{{ path_to_certs }}"
+        state: directory
+      tags: sgx_driver
+
+    - name: "[DRIVER] Probe {{ openssl_cnf_file }}"
+      stat:
+        path: "{{ openssl_cnf_file }}"
+      register: openssl_cnf_file_stat
+      tags: sgx_driver
+
+    - name: "[DRIVER] Download SGX OpenSSL Config from {{ openssl_cnf_template }}"
+      get_url:
+        url: "{{ openssl_cnf_template }}"
+        dest: "{{ openssl_cnf_file }}"
+      when: openssl_cnf_file_stat.stat['exists'] == false
+      tags: sgx_driver
+
+    - name: "[DRIVER] Probe {{ openssl_cnf_file }}"
+      stat:
+        path: "{{ openssl_cnf_file }}"
+      register: openssl_cnf_file_stat
+      tags: sgx_driver
+
+    - name: "[DRIVER] Fail if SGX OpenSSL Config File isn't a regular file"
+      fail:
+        msg: "{{ openssl_cnf_file }} isn't a regular file"
+      when: openssl_cnf_file_stat.stat['isreg'] == false
+      tags: sgx_driver
+
     # After a first run, we do not need to regenerate the certificate. Verify with mokutil the list of enrolled certificate
     - name: "[DRIVER] Get the list of enrolled certificate in MOK"
       shell: mokutil --export
@@ -331,19 +390,19 @@
               -keyout {{ path_to_certs }}/MOK.priv 
               -out {{ path_to_certs }}/MOK.pem"
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
 
     - name: "[DRIVER] Check the signature of the self-signed certificate {{ path_to_certs }}/MOK.pem"
       shell: "openssl verify -CAfile {{ path_to_certs }}/MOK.pem {{ path_to_certs }}/MOK.pem"
       register: cert_verify
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
 
     - name: "[DRIVER] Fail the play if the certificate's {{ path_to_certs }}/MOK.pem signature is not OK"
       fail:
         msg: "[DRIVER] The certificate's {{ path_to_certs }}/MOK.pem signature is not OK"
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and "MOK.pem: OK" not in cert_verify.stdout and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and "MOK.pem: OK" not in cert_verify.stdout and sb_value.stdout == "sb_yes"'
 
     ############################################################################################################################################
     ## Sign the module isgx.ko using the private key from above ##
@@ -375,15 +434,15 @@
               -in  {{ path_to_certs }}/MOK.pem
               -out {{ path_to_certs }}/MOK.der"
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
     
     ## Use mokutil to import the certificate to trusting base ##
     - name: "[DRIVER] Enroll the key to shim (the trusting base of certificates) in order to verify the signed kernel module.
             There is need to add a password for 2 times"
-      shell: 'yes "horia" | head -n 2 | mokutil --import {{ path_to_certs }}/MOK.der'
+      shell: 'yes "sjm" | head -n 2 | mokutil --import {{ path_to_certs }}/MOK.der'
       become: yes
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
 
     ## On this next step, we need to reboot the device ##
     - name: "[DRIVER] Reboot the device after importing cert to shim"
@@ -392,7 +451,7 @@
       poll: 0
       tags: sgx_driver
       become: yes
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
     
     - name: "[DRIVER] Wait for reboot to complete. Add to the remote device the password in MOKManager"
       wait_for_connection:
@@ -401,20 +460,20 @@
         delay: 10
         timeout: 300
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
 
     - name: "[DRIVER] After the reboot is completed, verify the /proc/keys file - need to exist at least 1 CN = NUS there "
       shell: "cat /proc/keys | grep NUS"
       register: out_proc_keys
       become: yes
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and sb_value.stdout == "sb_yes"'
 
     - name: "[DRIVER] Fail the play if at least 1 CN = NUS is not found in the /proc/keys file"
       fail:
         msg: "[DRIVER] Failed to find at least 1 CN = NUS in the /proc/keys file"
       tags: sgx_driver
-      when: 'found_cert_subject is undefined and "NUS: Secure Boot Signing" not in out_proc_keys.stdout and sb_value.stdout == "sb_yes"'
+      when: 'found_cert_subject.changed == false and "NUS: Secure Boot Signing" not in out_proc_keys.stdout and sb_value.stdout == "sb_yes"'
 
     ## Enable the kernel module 'isgx.ko' ##
     - name: "[DRIVER] Enable the module 'isgx.ko' on device"
@@ -490,9 +549,10 @@
       tags: sgx_psw
 
     - name: "[PSW] Install the prerequisites libraries"
-      action: >
-        {{ ansible_pkg_mgr }} name={{ item }} state=latest update_cache=yes
-      with_items: ['libssl-dev', 'libcurl4-openssl-dev', 'libprotobuf-dev']
+      apt: 
+        name: ['libssl-dev', 'libcurl4-openssl-dev', 'libprotobuf-dev']
+        state: latest
+        update_cache: yes
       become: yes
       tags: sgx_psw
     

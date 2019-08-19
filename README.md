@@ -26,7 +26,7 @@ user@host $ cat sample_playbook.yaml
         update_cache: yes
 [...]
 ```
-The hosts are kept in a configuration file called **inventory**. There is required to define the IPs/hostnames and optionally add a connection type (local or ssh) and the remote user to connect (is there is no user added, it will use the same one from the control machine). They can also be classified in groups (for example, we may have computers on marketing department on which there are some specific tools to be installed and a research one with different programs).  
+The hosts are kept in a configuration file called **inventory**. There is required to define the IPs/hostnames and optionally add a connection type (local or ssh) and the remote user to connect (if there is no user added, it will use the same one from the control machine). They can also be classified in groups (for example, we may have computers on marketing department on which there are some specific tools to be installed and a research one with different programs).  
 
 The inventories can be written in the INI format (Ansible's default one - see below a sample) or YAML.
 

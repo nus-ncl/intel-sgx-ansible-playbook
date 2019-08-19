@@ -13,7 +13,7 @@
 # Application test in HW mode: https://github.com/intel/linux-sgx/tree/master/SampleCode/RemoteAttestation
 
 - hosts: ncl2
-  sudo: no
+  become: no
   vars:
     ## SDK ##
     sdk_location: /linux/installer/bin
@@ -26,6 +26,11 @@
       register: current_user
       tags: [ 'sim_test', 'hw_test' ]
 
+    - name: "[GENERAL] Get the home directory from the current machine"
+      shell: "pwd"
+      register: current_home_directory
+      tags: [ 'sim_test', 'hw_test' ]
+
     - name: "[GENERAL] Get the effective group in which the current is in"
       shell: "id -gn"
       register: current_group
@@ -33,9 +38,9 @@
 
     - name: "[GENERAL] Complete the path on variables with the current user"
       set_fact:
-        ansible_repo="/home/{{ current_user.stdout }}/linux-sgx"
-        sample_libcrypto="/home/{{ current_user.stdout }}/linux-sgx/sdk/sample_libcrypto"
-        sample_code_ra="/home/{{ current_user.stdout }}/linux-sgx/SampleCode/RemoteAttestation"
+        ansible_repo="{{ current_home_directory.stdout }}/linux-sgx"
+        sample_libcrypto="{{ current_home_directory.stdout }}/linux-sgx/sdk/sample_libcrypto"
+        sample_code_ra="{{ current_home_directory.stdout }}/linux-sgx/SampleCode/RemoteAttestation"
       tags: [ 'sim_test', 'hw_test' ]
 
     ## SIM MODE ##
