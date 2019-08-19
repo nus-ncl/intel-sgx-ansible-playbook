@@ -70,12 +70,22 @@
 
     ##### SDK + PSW #####
 
-    - name: "[SDK] Install required tools to build the Intel SGX SDK"
+    - name: "[SDK] Install required tools to build the Intel SGX SDK for Ubuntu 18.04"
       apt:
         name: ['build-essential', 'ocaml', 'ocamlbuild', 'automake', 'autoconf', 'libtool', 'wget', 'python', 'libssl-dev']
         state: latest
         update_cache: yes
       become: yes
+      when: "ansible_distribution_version != '18.04'"
+      tags: sgx_sdk
+
+    - name: "[SDK] Install required tools to build the Intel SGX SDK for Ubuntu 16.04"
+      apt:
+        name: ['build-essential', 'ocaml', 'automake', 'autoconf', 'libtool', 'wget', 'python', 'libssl-dev']
+        state: latest
+        update_cache: yes
+      become: yes
+      when: "ansible_distribution_version != '16.04'"
       tags: sgx_sdk
 
     - name: "[PSW] Install additional required tools to build the Intel SGX PSW"
