@@ -40,18 +40,23 @@
     # note that all packages are updated or installed if not found
 
   tasks:
-    - name: "[GENERAL] Get the current user from the current machine"
-      shell: "whoami"
-      register: current_user
+    # - name: "[GENERAL] Get the current user from the current machine"
+    #   shell: "whoami"
+    #   register: current_user
+    #   tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
+
+    - name: "[GENERAL] Get the home directory from the current machine"
+      shell: "pwd"
+      register: current_home_directory
       tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
 
     - name: "[GENERAL] Complete the path on variables with the current user"
       set_fact:
-        ansible_repo="/users/{{ current_user.stdout }}/linux-sgx"
-        hw_location="/users/{{ current_user.stdout }}/sgx-hardware"
-        driver_location="/users/{{ current_user.stdout }}/sgx-driver"
-        openssl_cnf_file="/users/{{ current_user.stdout }}/SGX-setup-install/sgx_openssl.cnf"
-        path_to_certs="/users/{{ current_user.stdout }}/SGX-setup-install"
+        ansible_repo="{{ current_home_directory.stdout }}/linux-sgx"
+        hw_location="{{ current_home_directory.stdout }}/sgx-hardware"
+        driver_location="{{ current_home_directory.stdout }}/sgx-driver"
+        openssl_cnf_file="{{ current_home_directory.stdout }}/SGX-setup-install/sgx_openssl.cnf"
+        path_to_certs="{{ current_home_directory.stdout }}/SGX-setup-install"
       tags: ['sgx_sdk', 'sgx_psw', "hw_verif", "sgx_driver" ]
 
     ## General prerequisites ##
@@ -152,12 +157,12 @@
     ## Note that we still need to source the environment when testing an application on this file ##
     - name: Add the source command to sgxsdk environment to .bashrc for the current user
       lineinfile:
-        path: /users/{{ current_user.stdout }}/.bashrc
+        path: {{ current_home_directory.stdout }}/.bashrc
         line: source {{ ansible_repo }}{{ sdk_location }}/sgxsdk/environment
       tags: sgx_sdk
 
     - name: Source the new .bashrc file for current user
-      shell: . /users/{{ current_user.stdout }}/.bashrc
+      shell: . {{ current_home_directory.stdout }}/.bashrc
       tags: sgx_sdk
 
     ############################################################################################################################################
