@@ -8,8 +8,8 @@
 
 ## see more information here: https://docs.ansible.com/ansible/latest/user_guide/intro_inventory.html
 
-[ncl]
-127.0.0.1 	   ansible_connection=local ansible_user=user
+[localhost]
+127.0.0.1 	   ansible_connection=local ansible_user=ncl
 # for localhost can also add
 # localhost
 # 127.0.0.1 (or any other ip from 127.0.0.0/8)

@@ -12,7 +12,7 @@
 # Application tested in SIM mode: https://github.com/hstoenescu/SGX-beginner-sample
 # Application test in HW mode: https://github.com/intel/linux-sgx/tree/master/SampleCode/RemoteAttestation
 
-- hosts: ncl2
+- hosts: localhost 
   become: no
   vars:
     ## SDK ##

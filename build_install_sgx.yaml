@@ -15,7 +15,7 @@
 
 # -- ubuntu 18.04 install -- #
 
-- hosts: ncl2
+- hosts: localhost 
   become: no
   vars:
     ### SDK + PSW ###
@@ -334,6 +334,14 @@
       tags: sgx_driver
 
     # After a first run, we do not need to regenerate the certificate. Verify with mokutil the list of enrolled certificate
+    - name: "[DRIVER] Install the Mokutil tools"
+      apt:
+        name: ['mokutil']
+        state: latest
+        update_cache: yes
+      become: yes
+      tags: sgx_driver
+
     - name: "[DRIVER] Get the list of enrolled certificate in MOK"
       shell: mokutil --export
       args:
